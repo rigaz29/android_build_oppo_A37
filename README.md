@@ -1,7 +1,7 @@
 # LineageOS 17.1 untuk OPPO A37 / A37f / A37fw
 
-Local manifest + script build untuk membangun **LineageOS 17.1 (Android 10)** pada
-OPPO A37 (codename LineageOS: `A37`), Qualcomm **MSM8916 / Snapdragon 410**.
+Local manifest, patch, dan script build untuk membangun **LineageOS 17.1 (Android 10)**
+pada OPPO A37 — codename LineageOS `A37`, Qualcomm **MSM8916 / Snapdragon 410**.
 
 | | |
 |---|---|
@@ -11,19 +11,24 @@ OPPO A37 (codename LineageOS: `A37`), Qualcomm **MSM8916 / Snapdragon 410**.
 | Nomor proyek OPPO | 15399 |
 | Android bawaan | 5.1.1 (ColorOS 3.0) |
 
+**Status: terbukti boot sampai homescreen** (28 Juli 2026). Lihat [Status pengujian](#status-pengujian)
+untuk apa yang sudah dan belum diverifikasi.
+
 ## Isi repo
 
 | File | Fungsi |
 |---|---|
-| `A37.xml` | Local manifest — device tree, vendor blobs, kernel, dependency |
-| `build.sh` | Script satu-jalan: cek host → `repo init` → `repo sync` → perbaiki LFS → patch kernel → build |
-| `patches/gcc-wrapper.py` | Versi python3 dari `scripts/gcc-wrapper.py` kernel, untuk host tanpa python2 |
+| `A37.xml` | Local manifest — device tree, vendor, kernel, dependency, semuanya di-pin ke SHA |
+| `build.sh` | Script satu-jalan: cek host → init → sync → perbaiki LFS → patch → build |
+| `patches/device-A37-cryptfshw.patch` | Menambah `cryptfshw@1.0-service-qti.qsee` ke `PRODUCT_PACKAGES` |
+| `patches/device-A37-toolchain.patch` | Membuang path toolchain milik mesin pembuat device tree |
+| `patches/gcc-wrapper.py` | Versi python3 dari wrapper kernel — hanya perlu untuk kernel selain yang di-pin |
 | `README.md` | Dokumen ini |
 
-## Source yang dipakai — konfigurasi yang terbukti boot
+## Konfigurasi yang terbukti boot
 
-Kombinasi di bawah ini **terbukti boot sampai homescreen** pada 28 Juli 2026, dan
-`A37.xml` mem-pin keempatnya ke commit tersebut (`revision` = SHA, `upstream` = branch).
+`A37.xml` mem-pin setiap project ke commit (`revision` = SHA 40 karakter, `upstream` = branch),
+supaya `repo sync` kapan pun menghasilkan tree yang sama.
 
 | Komponen | Repo | Commit | Branch | Path |
 |---|---|---|---|---|
@@ -33,44 +38,43 @@ Kombinasi di bawah ini **terbukti boot sampai homescreen** pada 28 Juli 2026, da
 | timekeep | [`LineageOS/android_hardware_sony_timekeep`](https://github.com/LineageOS/android_hardware_sony_timekeep) | `858c544d1ad1` | `lineage-17.1` | `hardware/sony/timekeep` |
 | stlport | [`LineageOS/android_external_stlport`](https://github.com/LineageOS/android_external_stlport) | — | `lineage-15.1` | `external/stlport` |
 
-Dua hal teknis soal pin ini:
+Empat hal yang sering bikin salah pasang:
 
-- **SHA harus lengkap 40 karakter.** `repo` memperlakukan SHA singkat sebagai nama branch;
-  sync akan gagal dengan `fatal: couldn't find remote ref refs/heads/<sha>`.
-- **`clone-depth="1"` pada kernel bisa bentrok dengan pin.** Kalau branch `0.0` kelak
-  bergerak melewati commit yang di-pin, clone dangkal tidak memuatnya. Solusinya hapus
-  atribut `clone-depth` pada project kernel di `A37.xml`.
-
-Ingin mengikuti perkembangan terbaru? Ganti `revision` dengan nama branch di `upstream`.
-
-Dua hal yang sering bikin orang salah pilih:
-
-1. **Kernel-nya bernama `msm8939`, dan itu memang benar.** Repo itu adalah source drop
+1. **Kernel bernama `msm8939` dan itu memang benar.** Repo tersebut adalah source drop
    gabungan OPPO untuk msm8916/msm8939 (R7s, R7Plus, F1f, A37f). Di dalamnya
    `arch/arm64/configs/lineageos_a37f_defconfig` berisi `CONFIG_ARCH_MSM8916=y` dan
-   `CONFIG_MACH_15399=y`. Tiga device tree A37 yang berbeda (17.1, 18.1, 20)
-   semuanya menunjuk ke `kernel/oppo/msm8939` + defconfig yang sama.
-2. **Vendor di-pasang ke `vendor/oppo`, bukan `vendor/oppo/A37`.** Root repo vendor `rb`
-   berisi folder `A37/`, jadi path project-nya satu tingkat di atas. Salah path membuat
-   `device.mk` gagal menemukan `vendor/oppo/A37/A37-vendor.mk`.
-3. **Device tree dan vendor harus sepasang.** Vendor `rb` membawa prebuilt
-   `bluetooth@1.0-service-qti`, `perf@1.0-service`, dan `iop@1.0/2.0`; mencampurnya dengan
+   `CONFIG_MACH_15399=y` — nomor proyek OPPO untuk A37.
+2. **Vendor dipasang ke `vendor/oppo`, bukan `vendor/oppo/A37`.** Root repo vendor berisi
+   folder `A37/`, jadi path project-nya satu tingkat di atas.
+3. **Device tree dan vendor harus sepasang.** Vendor ini membawa prebuilt
+   `bluetooth@1.0-service-qti`, `perf@1.0-service`, dan `iop@1.0/2.0`; mencampur dengan
    device tree lain berisiko dua service memperebutkan instance `default` HAL yang sama.
+4. **SHA di manifest harus lengkap 40 karakter.** `repo` memperlakukan SHA singkat sebagai
+   nama branch dan gagal dengan `fatal: couldn't find remote ref refs/heads/<sha>`.
+
+Varian kernel [`kernel_oppo_msm8939_`](https://github.com/meghs-playground/kernel_oppo_msm8939_)
+(akhiran garis bawah) adalah versi ber-root KernelSU — pakai itu hanya kalau memang ingin root.
+
+Ingin mengikuti perkembangan terbaru alih-alih commit yang di-pin? Ganti `revision` dengan
+nama branch pada atribut `upstream` masing-masing.
 
 ## Syarat host
 
-- **Ubuntu 20.04 LTS** paling aman. 22.04 umumnya masih bisa. **24.04 belum tentu** —
-  paket 32-bit legacy seperti `lib32ncurses5-dev` sudah tidak ada kandidatnya di sana.
+- **Ubuntu 20.04 LTS** paling aman, tapi konfigurasi ini berhasil dibangun di
+  **Ubuntu 24.04.4** (12 core, 11 GB RAM). Kernel yang di-pin tidak butuh `python2`, dan
+  ketiadaan `lib32ncurses5-dev` di 24.04 ternyata tidak menghalangi build.
 - RAM ≥ 8 GB (16 GB ideal; kalau 8 GB tambahkan swap 16 GB)
-- Disk kosong ≥ 200 GB
+- Disk kosong ≥ 200 GB — source ~90 GB, `out/` ~60 GB
 - Kuota internet ~60 GB untuk sync pertama
 
 ```bash
 sudo apt update
 sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
-  git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev libelf-dev \
+  git git-lfs gnupg gperf imagemagick lib32readline-dev lib32z1-dev libelf-dev \
   liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils \
-  lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev openjdk-8-jdk python2
+  lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev openjdk-8-jdk
+
+# di Ubuntu 20.04/22.04 tambahkan juga: lib32ncurses5-dev
 
 mkdir -p ~/bin
 curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
@@ -81,158 +85,264 @@ git config --global user.name  "Nama Kamu"
 git config --global user.email "kamu@example.com"
 ```
 
-> **Kalau `python2` tidak tersedia di distromu, itu tidak masalah** — lihat bagian berikut.
-> Yang penting: **jangan pasang `python-is-python2`**, karena `repo` butuh python3 dan
-> symlink itu akan merusaknya.
+> **Jangan pasang `python-is-python2`.** `repo` butuh python3 dan symlink itu merusaknya.
 
-### Soal python2 pada distro modern
+---
 
-Kernel 3.10 memanggil compiler lewat wrapper python2 — `Makefile` baris 345:
+# Jalur A — build dengan `build.sh`
 
-```make
-CC = $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
-```
-
-dan `scripts/gcc-wrapper.py` shebang-nya `#!/usr/bin/env python2` serta masih memakai
-`print` statement gaya python2. Di host tanpa python2 build kernel berhenti dengan
-`env: 'python2': No such file or directory`. Ubuntu 24.04 sudah tidak menyediakan paket
-python2 sama sekali (`apt-cache policy python2` → *Candidate: (none)*).
-
-`build.sh` menangani ini otomatis:
-
-- kalau `python2` ada → wrapper asli dipakai apa adanya;
-- kalau tidak ada tapi `python3` ada → `patches/gcc-wrapper.py` disalin ke
-  `kernel/oppo/msm8939/scripts/gcc-wrapper.py`, aslinya disimpan sebagai
-  `gcc-wrapper.py.orig`. Idempoten, aman dijalankan berulang;
-- kalau dua-duanya tidak ada → script berhenti dengan pesan jelas.
-
-### Warning tidak lagi menggagalkan build
-
-Wrapper asli juga menggagalkan build begitu gcc mengeluarkan warning yang tidak ada di
-daftar `allowed_warnings` — daftar berisi 8 baris yang ditulis tahun 2011. Pada source
-OPPO ini gate tersebut menabrak, misalnya:
-
-```
-kernel/irq/pm.c:103:7: warning: unused variable 'suspend_abort' [-Wunused-variable]
-error, forbidden warning: pm.c:103
-make[3]: *** [scripts/Makefile.build:309: kernel/irq/pm.o] Error 1
-```
-
-Warning-nya sendiri benar — `suspend_abort` di `check_wakeup_irqs()` memang tidak pernah
-dipakai karena `log_suspend_abort_reason()` dipanggil dengan format string langsung. Tapi
-sebagai gerbang QA internal Qualcomm hal itu tidak relevan untuk membangun ROM, dan
-menyisirnya satu per satu berarti puluhan iterasi build (~14 menit per iterasi).
-
-Karena itu `patches/gcc-wrapper.py` **default-nya pass-through**: warning tetap tercetak
-apa adanya, tapi tidak menggagalkan build. Error kompilasi asli tetap menggagalkan build
-seperti biasa, karena exit status compiler diteruskan utuh (wrapper memakai `os.execvp`,
-jadi tanpa overhead pipe dan urutan output persis seperti memanggil gcc langsung).
-
-Kalau kamu ingin gerbang lama itu kembali:
+Cara yang disarankan. Script menangani semua jebakan yang dijelaskan di
+[Catatan teknis](#catatan-teknis).
 
 ```bash
-GCC_WRAPPER_FATAL_WARNINGS=1 ./build.sh --no-sync
-```
-
-### Prebuilt webview dan Git LFS
-
-`repo init` **wajib** memakai `--git-lfs`. Prebuilt `external/chromium-webview/prebuilt/arm/webview.apk`
-(~91 MB) disimpan lewat Git LFS; tanpa flag itu yang tersync hanya file pointer 133 byte
-berisi teks `version https://git-lfs.github.com/spec/v1`. Build tetap jalan sampai ~98%
-lalu gagal di ujung:
-
-```
-FAILED: target Prebuilt: webview (out/.../webview_intermediates/package.apk)
-out/.../package.apk: error: failed opening zip: Invalid file.
-veridex E ... Expected valid zip or dex file
-```
-
-`build.sh` sekarang memakai `--git-lfs` saat init, dan `fix_lfs_pointers()` mendeteksi
-pointer yang tersisa pada tree lama lalu menarik objeknya. Perbaikan manual:
-
-```bash
-cd ~/los17/external/chromium-webview/prebuilt/arm
-git lfs install --local && git lfs pull
-```
-
-Perhatikan tiap arsitektur adalah project repo terpisah (`prebuilt/arm`, `prebuilt/arm64`,
-`prebuilt/x86`, `prebuilt/x86_64`) — direktori induk `external/chromium-webview` sendiri
-bukan git repo, jadi `git lfs pull` di sana akan menjawab *"Not in a Git repository"*.
-A37 hanya butuh `arm`; atur lewat `LFS_ARCHS="arm arm64"` kalau perlu yang lain.
-
-AOSP tidak menyediakan python2 sendiri untuk tahap ini: di `kernel.mk` LineageOS 17.1 ada
-`PATH_OVERRIDE += $(TOOLS_PATH_OVERRIDE)`, tapi `TOOLS_PATH_OVERRIDE` tidak didefinisikan
-di `build/core/config.mk` branch tersebut — jadi wrapper memang mengambil python dari host.
-
-## Cara pakai
-
-```bash
-git clone <repo-ini> a37-build && cd a37-build
+git clone https://github.com/rigaz29/android_build_oppo_A37 a37-build
+cd a37-build
 chmod +x build.sh
 ./build.sh
 ```
 
-Opsi lain:
+Itu saja. Sekali jalan: `repo init` → sync → perbaiki LFS → terapkan patch → build.
+Hasilnya di `~/los17/out/target/product/A37/`.
 
-```bash
-./build.sh --sync-only          # siapkan source saja
-./build.sh --no-sync            # build ulang tanpa sync
-./build.sh --recovery           # bangun recovery.img saja
-./build.sh --clean              # bersihkan out/ device ini dulu
-./build.sh --installclean       # buang file terpasang yang basi (setelah ganti tree)
-./build.sh --jobs 4             # batasi paralelisme (host RAM kecil)
-BUILD_DIR=/mnt/ssd/los17 ./build.sh
-BUILD_LABEL=none ./build.sh     # buang label pada nama zip
-BUILD_LABEL=vanilla ./build.sh  # lineage-17.1-<tgl>-UNOFFICIAL-vanilla-A37.zip
-```
+## Opsi
 
-Default lokasi source: `~/los17` (ubah lewat `BUILD_DIR` atau `--dir`).
+| Perintah | Guna |
+|---|---|
+| `./build.sh` | init + sync + build penuh |
+| `./build.sh --no-sync` | build ulang tanpa sync — dipakai untuk hampir semua iterasi |
+| `./build.sh --sync-only` | siapkan source saja, jangan build |
+| `./build.sh --recovery` | bangun `recovery.img` saja |
+| `./build.sh --installclean` | buang file terpasang yang basi, lalu build — **wajib setelah ganti device tree/vendor** |
+| `./build.sh --clean` | hapus `out/target/product/A37` dulu, lalu build |
+| `./build.sh --jobs 4` | batasi paralelisme untuk host ber-RAM kecil |
+| `./build.sh --dir /mnt/ssd/los17` | pilih lokasi source (default `~/los17`) |
+| `./build.sh --help` | ringkasan opsi |
 
-### Kalau mau manual
+Variabel lingkungan: `BUILD_DIR`, `JOBS`, `CCACHE_SIZE` (default 50G), `LFS_ARCHS`
+(default `arm`), `BUILD_LABEL` (`none` untuk membuang label pada nama zip).
+
+## Yang dikerjakan otomatis
+
+| Tahap | Isi |
+|---|---|
+| Cek host | `git`, `repo`, `git config user.email`, python2/python3, peringatan RAM & disk, aktifkan ccache |
+| Init | `repo init … --git-lfs` (juga pada tree lama yang sudah ada) |
+| Sync | `repo sync -c --no-clone-bundle --no-tags --force-sync` |
+| LFS | deteksi `webview.apk` yang masih pointer 133 byte, lalu `git lfs pull` di project yang tepat |
+| Patch kernel | ganti `scripts/gcc-wrapper.py` dengan versi python3 **hanya** kalau kernel memakainya dan host tanpa python2 |
+| Patch device tree | terapkan semua `patches/device-A37-*.patch` secara idempoten |
+| Label | peringatan kalau `TARGET_UNOFFICIAL_BUILD_ID` terwarisi dari environment |
+| Build | `breakfast A37` lalu `mka bacon` (atau `mka recoveryimage`) |
+
+---
+
+# Jalur B — build manual
+
+Kalau ingin mengerjakan sendiri tanpa script, atau perlu menyisipkan langkah lain di
+tengah. Semua perintah di bawah setara dengan yang dilakukan `build.sh`.
+
+### 1. Siapkan source
 
 ```bash
 mkdir -p ~/los17 && cd ~/los17
-repo init -u https://github.com/LineageOS/android.git -b lineage-17.1 --no-clone-bundle --git-lfs
-mkdir -p .repo/local_manifests && cp /path/ke/A37.xml .repo/local_manifests/
-repo sync -c --no-clone-bundle --no-tags --force-sync -j$(nproc --all)
-
-# Hanya kalau host tidak punya python2:
-cp /path/ke/patches/gcc-wrapper.py kernel/oppo/msm8939/scripts/gcc-wrapper.py
-
-source build/envsetup.sh
-breakfast A37
-mka bacon
+repo init -u https://github.com/LineageOS/android.git -b lineage-17.1 \
+          --no-clone-bundle --git-lfs
 ```
 
-Tidak perlu menyiapkan toolchain kernel sendiri: pada LineageOS 17.1
-`TARGET_KERNEL_CLANG_COMPILE` default-nya `false`, jadi kernel dibangun dengan GCC 4.9
-prebuilt (`prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9`) yang sudah ada di
-dalam source — persis yang dibutuhkan kernel 3.10. Device tree juga sudah membawa
-`dtbtool/` sendiri untuk `dtbToolOppo`.
+`--git-lfs` wajib, jangan dilewat — lihat [Prebuilt webview dan Git LFS](#prebuilt-webview-dan-git-lfs).
 
-### Label pada nama zip
-
-LineageOS menyusun nama zip dari `TARGET_UNOFFICIAL_BUILD_ID`. Variabel itu gampang
-terwarisi dari `~/.bashrc` sisa build device lain, dan hasilnya zip A37 keluar dengan nama
-yang menyesatkan, misalnya `lineage-17.1-20260728-UNOFFICIAL-microG-ReSukiSU-A37.zip`
-padahal isinya LineageOS vanilla tanpa microG maupun KernelSU sama sekali.
-
-`build.sh` memperingatkan kalau variabel itu diwarisi dari environment. Untuk mengendalikannya:
+### 2. Pasang local manifest
 
 ```bash
-BUILD_LABEL=none ./build.sh --no-sync      # hapus label
-BUILD_LABEL=vanilla ./build.sh --no-sync   # ganti label
+mkdir -p .repo/local_manifests
+cp /path/ke/a37-build/A37.xml .repo/local_manifests/
 ```
 
-Perlu diingat label ini bukan sekadar nama file — ia masuk ke `ro.lineage.version` di
-`build.prop`, jadi mengubahnya berarti build ulang tahap image + packaging (beberapa menit
-saja karena inkremental), bukan sekadar `mv`.
+### 3. Sync
 
-### Setelah mengganti device tree atau vendor
+```bash
+repo sync -c --no-clone-bundle --no-tags --force-sync -j$(nproc --all)
+```
 
-Wajib `--installclean` sekali. Build inkremental AOSP tidak membuang file yang tidak lagi
-diminta `PRODUCT_PACKAGES`, jadi sisa tree lama tetap ikut ke dalam image. Contoh nyata saat
-pindah ke tree `rb` — dua service memperebutkan instance `default` HAL yang sama:
+### 4. Pastikan prebuilt LFS benar-benar terunduh
+
+```bash
+ls -l external/chromium-webview/prebuilt/arm/webview.apk    # harus ~91 MB, bukan 133 byte
+```
+
+Kalau masih pointer:
+
+```bash
+cd external/chromium-webview/prebuilt/arm
+git lfs install --local && git lfs pull
+cd ~/los17
+```
+
+### 5. Terapkan patch device tree
+
+```bash
+patch -p1 -d device/oppo/A37 < /path/ke/a37-build/patches/device-A37-cryptfshw.patch
+patch -p1 -d device/oppo/A37 < /path/ke/a37-build/patches/device-A37-toolchain.patch
+```
+
+Verifikasi:
+
+```bash
+grep -c 'cryptfshw@1.0-service-qti.qsee' device/oppo/A37/device.mk   # → 1
+grep -c '^KERNEL_TOOLCHAIN := /tmp'      device/oppo/A37/BoardConfig.mk   # → 0
+```
+
+### 6. Kernel: hanya kalau memakai kernel lain
+
+Kernel yang di-pin sudah membuang `scripts/gcc-wrapper.py` (`CC = $(CROSS_COMPILE)gcc`),
+jadi langkah ini **tidak perlu**. Untuk kernel lain yang masih memakainya, di host tanpa
+python2:
+
+```bash
+cp /path/ke/a37-build/patches/gcc-wrapper.py kernel/oppo/msm8939/scripts/gcc-wrapper.py
+chmod +x kernel/oppo/msm8939/scripts/gcc-wrapper.py
+```
+
+### 7. Bersihkan label warisan
+
+```bash
+unset TARGET_UNOFFICIAL_BUILD_ID    # kalau tidak, nama zip ikut label build device lain
+```
+
+### 8. Build
+
+```bash
+source build/envsetup.sh
+breakfast A37
+
+m installclean      # hanya kalau device tree/vendor baru saja diganti
+
+mka bacon           # ROM lengkap
+# atau
+mka recoveryimage   # recovery.img saja
+```
+
+Tidak perlu menyiapkan toolchain kernel: pada LineageOS 17.1 `TARGET_KERNEL_CLANG_COMPILE`
+default-nya `false`, jadi kernel dibangun dengan GCC 4.9 prebuilt
+(`prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9`) yang sudah ada di source.
+Device tree juga membawa `dtbtool/` sendiri untuk `dtbToolOppo`.
+
+### 9. Periksa hasilnya sebelum flash
+
+Pastikan tidak ada dua service untuk satu HAL:
+
+```bash
+ls out/target/product/A37/system/vendor/bin/hw/
+```
+
+Kalau muncul pasangan seperti `light@2.0-service.a6000` bersama
+`light@2.0-service.oppo_msm8916`, berarti ada sisa build lama — jalankan `m installclean`
+lalu `mka bacon` ulang.
+
+## Manual vs `build.sh`
+
+| Langkah | `build.sh` | Manual |
+|---|---|---|
+| `--git-lfs` saat init | otomatis | harus diingat sendiri |
+| Objek LFS yang masih pointer | dideteksi & ditarik | cek & `git lfs pull` sendiri |
+| Patch device tree | idempoten, otomatis | `patch -p1` dua berkas |
+| Wrapper kernel python3 | dipasang bila perlu saja | salin manual bila perlu |
+| Label zip | `BUILD_LABEL=none` | `unset TARGET_UNOFFICIAL_BUILD_ID` |
+| ccache | diaktifkan otomatis | `export USE_CCACHE=1 CCACHE_EXEC=$(which ccache)` |
+| Cek RAM/disk | ada peringatan | — |
+| `installclean` | `--installclean` | `m installclean` |
+
+---
+
+## Hasil build
+
+```
+out/target/product/A37/lineage-17.1-<tanggal>-UNOFFICIAL-A37.zip   ~450 MB
+out/target/product/A37/recovery.img
+out/target/product/A37/boot.img
+```
+
+## Pasang ke HP
+
+1. **Backup dulu** — semua data akan hilang.
+2. Unlock bootloader, lalu flash recovery hasil build ini (jangan pakai recovery dari build
+   device tree lain):
+   ```bash
+   fastboot flash recovery recovery.img
+   ```
+   Langsung masuk recovery (Vol− + Power), jangan boot ke sistem dulu.
+3. Di recovery: **Factory reset → Format data/factory reset**. Data stock terenkripsi FDE,
+   wajib diformat.
+4. Pasang ROM:
+   ```bash
+   adb sideload lineage-17.1-*-UNOFFICIAL-A37.zip
+   ```
+5. GApps (opsional): **Open GApps ARM 10.0 varian `pico` saja** — RAM cuma 2 GB. Pasang
+   sebelum boot pertama.
+6. **Jangan pernah format partisi `firmware` dan `persist`** — di situ ada modem, kalibrasi
+   sensor, dan MAC WiFi (`BOARD_ROOT_EXTRA_FOLDERS := firmware persist`).
+
+Zip aman untuk semua varian:
+`TARGET_OTA_ASSERT_DEVICE := a37f,A37f,A37fw,a37fw,msm8916,msm8939`.
+
+## Troubleshooting
+
+| Gejala | Sebab & solusi |
+|---|---|
+| `ccache: error: execute_noreturn of /tmp/src/android/tc/bin/aarch64-linux-android-gcc` | `KERNEL_TOOLCHAIN` hardcoded di device tree — terapkan `patches/device-A37-toolchain.patch` |
+| `failed opening zip: Invalid file` pada target `webview` | Objek Git LFS belum ditarik — lihat [Prebuilt webview dan Git LFS](#prebuilt-webview-dan-git-lfs) |
+| `fatal: couldn't find remote ref refs/heads/<sha>` | SHA di manifest tidak lengkap; harus 40 karakter |
+| `repo sync` gagal pada `external/stlport` | Repo itu tidak punya branch `lineage-17.1`; `A37.xml` sudah mem-pin ke `lineage-15.1` |
+| `env: 'python2': No such file or directory` saat build kernel | Kernel lain yang masih memakai wrapper — salin `patches/gcc-wrapper.py`, atau jalankan lewat `build.sh` |
+| `error, forbidden warning: <file>:<baris>` | Gate warning wrapper Qualcomm; `patches/gcc-wrapper.py` default-nya pass-through |
+| `breakfast A37` → device not found | Path harus persis `device/oppo/A37`, dan sync harus jalan setelah local manifest dipasang |
+| Bootloop di bootanimation | Cek dua service untuk satu HAL (`ls .../vendor/bin/hw/`) dan `m installclean`; lihat [Bootloop dan cryptfshw](#bootloop-dan-cryptfshw) |
+| Ninja terbunuh / host kehabisan RAM | Tambah swap 16 GB atau `--jobs 4` |
+| `unsupported reloc 43` / error linker 32-bit | Paket multilib kurang: `gcc-multilib g++-multilib lib32z1-dev` |
+| Build berhenti tanpa pesan jelas | Error asli ada di `out/error.log`, bukan di ~20 baris terakhir terminal |
+
+---
+
+## Catatan teknis
+
+Kenapa patch dan langkah tambahan di atas ada. Semuanya berasal dari kegagalan nyata saat
+membangun ROM ini.
+
+### Bootloop dan cryptfshw
+
+ROM build pertama boot sampai bootanimation lalu reboot berulang. Membandingkan isinya
+dengan ROM 17.1 yang terbukti jalan menunjukkan selisihnya bukan blob kamera/GPS,
+melainkan **service HAL**: `manifest.xml` mendeklarasikan HAL sebagai `hwbinder` tanpa ada
+proses yang melayaninya.
+
+Tersangka utamanya `vendor.qti.hardware.cryptfshw` — `vold` membutuhkannya karena
+`BoardConfig.mk` menyalakan `TARGET_HW_DISK_ENCRYPTION := true`, tapi `device.mk` hanya
+memuat `vendor.qti.hardware.cryptfshw@1.0-base` dan vendor tree tidak membawa prebuilt
+service-nya. `patches/device-A37-cryptfshw.patch` menambahkan
+`vendor.qti.hardware.cryptfshw@1.0-service-qti.qsee`, yang sumbernya sudah ada di
+`hardware/lineage/interfaces/cryptfshw/1.0/qsee`.
+
+Perbaikan itu masuk bersamaan dengan pindah ke pasangan device tree + vendor `rb` dan
+`installclean`, jadi mana yang paling menentukan tidak pernah dipisahkan.
+
+### Toolchain hardcoded di device tree
+
+`BoardConfig.mk` device tree menyimpan path mesin pembuatnya:
+
+```makefile
+TARGET_KERNEL_CROSS_COMPILE_PREFIX := aarch64-linux-android-
+KERNEL_TOOLCHAIN := /tmp/src/android/tc/bin
+```
+
+Menurut `vendor/lineage/config/BoardConfigKernel.mk`, menyetel
+`TARGET_KERNEL_CROSS_COMPILE_PREFIX` justru **membatalkan** default
+`KERNEL_TOOLCHAIN_arm64`, jadi kedua baris harus dibuang — itu isi
+`patches/device-A37-toolchain.patch`.
+
+### Sisa build lama setelah ganti tree
+
+Build inkremental AOSP tidak membuang file yang tidak lagi diminta `PRODUCT_PACKAGES`,
+sehingga sisa device tree lama tetap masuk image:
 
 ```
 android.hardware.light@2.0-service.a6000          ← sisa tree lama
@@ -241,91 +351,104 @@ android.hardware.bluetooth@1.0-service            ← sisa
 android.hardware.bluetooth@1.0-service-qti        ← yang benar
 ```
 
-## Hasil build
+Dua service memperebutkan instance `default` HAL yang sama adalah resep bootloop
+tersendiri. Karena itu `m installclean` (atau `--installclean`) wajib sekali setiap ganti
+device tree/vendor.
+
+### Prebuilt webview dan Git LFS
+
+`external/chromium-webview/prebuilt/arm/webview.apk` (~91 MB) disimpan lewat Git LFS. Tanpa
+`--git-lfs` saat `repo init`, yang tersync hanya pointer 133 byte berisi
+`version https://git-lfs.github.com/spec/v1`, dan build baru gagal di ~98%:
 
 ```
-out/target/product/A37/lineage-17.1-<tanggal>-UNOFFICIAL-A37.zip
-out/target/product/A37/recovery.img
+FAILED: target Prebuilt: webview (out/.../webview_intermediates/package.apk)
+out/.../package.apk: error: failed opening zip: Invalid file.
 ```
 
-## Pasang ke HP
+Tiap arsitektur adalah project repo terpisah (`prebuilt/arm`, `arm64`, `x86`, `x86_64`);
+direktori induk `external/chromium-webview` bukan git repo, jadi `git lfs pull` di sana
+menjawab *"Not in a Git repository"*. A37 hanya butuh `arm`.
 
-1. **Backup dulu** — semua data akan hilang.
-2. Unlock bootloader, lalu flash recovery:
-   ```bash
-   fastboot flash recovery recovery.img
-   ```
-   Langsung masuk recovery (Vol− + Power), jangan boot ke sistem dulu.
-3. Di recovery: **Factory reset → Format data/factory reset** (data stock terenkripsi FDE,
-   wajib diformat).
-4. Pasang ROM:
-   ```bash
-   adb sideload lineage-17.1-*-UNOFFICIAL-A37.zip
-   ```
-5. GApps (opsional): **Open GApps ARM 10.0 varian `pico` saja** — RAM cuma 2 GB.
-   Pasang sebelum boot pertama.
-6. **Jangan pernah format partisi `firmware` dan `persist`** — di situ ada modem, kalibrasi
-   sensor, dan MAC WiFi (`BOARD_ROOT_EXTRA_FOLDERS := firmware persist`).
+### Wrapper python2 pada kernel MSM 3.10
 
-Zip aman untuk semua varian: `TARGET_OTA_ASSERT_DEVICE := a37f,A37f,A37fw,a37fw,msm8916,msm8939`.
+Tidak relevan untuk kernel yang di-pin, tapi berlaku untuk kebanyakan kernel msm8916/8939
+lain. Kernel 3.10 memanggil compiler lewat `Makefile`:
 
-## Troubleshooting
+```make
+CC = $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
+```
 
-| Gejala | Sebab & solusi |
-|---|---|
-| `env: 'python2': No such file or directory` saat build kernel | Jalankan lewat `build.sh` (wrapper otomatis dipatch ke python3), atau manual: `cp patches/gcc-wrapper.py ~/los17/kernel/oppo/msm8939/scripts/gcc-wrapper.py` |
-| Build kernel gagal dengan `error, forbidden warning: <file>:<baris>` | Muncul kalau kamu memakai wrapper asli atau `GCC_WRAPPER_FATAL_WARNINGS=1`. Default `patches/gcc-wrapper.py` sudah pass-through, jadi jalankan lewat `build.sh` tanpa env itu |
-| `repo sync` gagal pada `external/stlport` | Repo itu tidak punya branch `lineage-17.1`; `A37.xml` sudah mem-pin ke `lineage-15.1` |
-| `breakfast A37` → device not found | Path harus persis `device/oppo/A37` (huruf besar), dan `repo sync` harus jalan setelah local manifest dipasang |
-| Ninja terbunuh / host kehabisan RAM | Tambah swap 16 GB atau `./build.sh --jobs 4` |
-| `unsupported reloc 43` / error linker 32-bit | Paket multilib kurang: `gcc-multilib g++-multilib lib32z1-dev` |
-| `failed opening zip: Invalid file` pada target `webview` | Objek Git LFS belum ditarik — lihat bagian "Prebuilt webview dan Git LFS" |
-| Build berhenti tanpa pesan jelas | Ulangi `./build.sh --no-sync`; error asli biasanya muncul di ~200 baris terakhir |
+`gcc-wrapper.py` ber-shebang `python2` dan memakai `print` statement, sementara Ubuntu 24.04
+sudah tidak menyediakan paket python2. AOSP juga tidak menyuplainya untuk tahap ini:
+`kernel.mk` LineageOS 17.1 menambahkan `$(TOOLS_PATH_OVERRIDE)`, tapi variabel itu tidak
+didefinisikan di `build/core/config.mk` branch tersebut.
+
+`patches/gcc-wrapper.py` adalah port python3-nya, dengan satu perubahan perilaku:
+**warning tidak lagi menggagalkan build**. Daftar `allowed_warnings` bawaan hanya 8 baris
+dari 2011 dan menabrak source OPPO, misalnya `unused variable 'suspend_abort'` di
+`kernel/irq/pm.c:103`. Wrapper meneruskan proses lewat `os.execvp`, jadi exit status
+compiler tetap utuh — error kompilasi asli tetap menggagalkan build. Untuk mengembalikan
+gerbang lama: `GCC_WRAPPER_FATAL_WARNINGS=1`.
+
+### Label pada nama zip
+
+LineageOS menyusun nama zip dari `TARGET_UNOFFICIAL_BUILD_ID`, yang gampang terwarisi dari
+`~/.bashrc` sisa build device lain — misalnya zip A37 keluar bernama
+`lineage-17.1-…-UNOFFICIAL-microG-ReSukiSU-A37.zip` padahal isinya vanilla tanpa microG
+maupun KernelSU. Label ini juga masuk ke `ro.lineage.version` di `build.prop`, jadi
+mengubahnya berarti build ulang tahap packaging, bukan sekadar `mv`.
+
+---
 
 ## Yang harus diterima apa adanya
 
-- **SELinux permissive** — sudah dihardcode di device tree
+- **SELinux permissive** — dihardcode di device tree
   (`BOARD_KERNEL_CMDLINE += androidboot.selinux=permissive`, `SELINUX_IGNORE_NEVERALLOWS := true`).
-  Akibatnya Play Integrity/SafetyNet gagal dan sebagian aplikasi bank/dompet digital menolak jalan.
-- **`VENDOR_SECURITY_PATCH := 2016-01-01`** — blob-nya dari ColorOS 5.1.1. Patch level Android
+  Play Integrity/SafetyNet gagal; sebagian aplikasi bank/dompet digital menolak jalan.
+- **`VENDOR_SECURITY_PATCH := 2016-01-01`** — blob dari ColorOS 5.1.1. Patch level Android
   boleh baru, blob vendornya tidak.
 - **Kamera HAL1 legacy + shim** (`TARGET_HAS_LEGACY_CAMERA_HAL1`, `libshim_camera`).
-  Jangan berharap aplikasi Camera2 API / GCam berjalan mulus.
-- **Userspace 32-bit** (`TARGET_ARCH := arm`, kernel `arm64`). Normal untuk device ini, tapi
-  aplikasi arm64-only tidak bisa dipasang.
+  Aplikasi Camera2 API / GCam jangan diharap mulus.
+- **Userspace 32-bit** (`TARGET_ARCH := arm`, kernel `arm64`) — aplikasi arm64-only tidak
+  bisa dipasang.
 - **LineageOS 17.1 sudah EOL di hulu** — tidak ada patch keamanan baru untuk branch ini.
-  Kalau ingin lebih baru: device tree [`udyneos-prjkt/android_device_oppo_A37`](https://github.com/udyneos-prjkt/android_device_oppo_A37)
-  branch `lineage-18.1`, vendor branch `lineage-19.1`, kernel tetap sama.
+  Kalau ingin lebih baru: device tree
+  [`udyneos-prjkt/android_device_oppo_A37`](https://github.com/udyneos-prjkt/android_device_oppo_A37)
+  branch `lineage-18.1`, kernel tetap sama.
 
 ## Status pengujian
 
-Yang sudah diuji:
+Sudah diverifikasi:
 
-- `build.sh` lolos `bash -n`, parsing argumen dan `--help` benar.
-- Guard host bekerja: pada Ubuntu 24.04 tanpa python2 script berhenti rapi, dan setelah
-  patch ditambahkan ia lanjut ke mode python3.
-- `patches/gcc-wrapper.py` diuji langsung dengan gcc dalam tiga skenario: kompilasi bersih
-  lolos (exit 0); warning tidak menggagalkan build pada mode default dan object file tetap
-  ada; `GCC_WRAPPER_FATAL_WARNINGS=1` mengembalikan perilaku lama (`error, forbidden
-  warning:`, object dihapus, exit 1); error kompilasi asli tetap exit 1.
-- `patch_kernel_python()` diuji pada tree tiruan: backup `.orig` dibuat, pemanggilan kedua
-  tidak mengubah apa pun (idempoten), dan pembaruan isi `patches/gcc-wrapper.py` ikut
-  tersalin ke tree kernel.
-- `repo sync` penuh (~90 GB di disk) dan build kernel berjalan sampai
-  `LD drivers/built-in.o` pada Ubuntu 24.04.
+- Build penuh selesai dan menghasilkan zip 450 MB (`#### build completed successfully ####`).
+- **ROM terpasang di perangkat dan boot sampai homescreen.**
+- Tidak ada duplikat service HAL di `vendor/bin/hw/` setelah `installclean`.
+- Semua HAL yang tadinya kosong kini terisi: `cryptfshw@1.0-service-qti.qsee`,
+  `bluetooth@1.0-service-qti`, `perf@1.0-service`, `light@2.0-service.oppo_msm8916`,
+  `wifi@1.0-service.legacy`, `livedisplay` (legacymm + sysfs), `drm@1.1-service.widevine`,
+  `vendor/bin/timekeep`.
+- `repo sync` ulang dengan manifest ber-pin mengembalikan keempat HEAD ke commit yang benar.
+- `patches/gcc-wrapper.py` diuji langsung dengan gcc: kompilasi bersih exit 0; warning tidak
+  menggagalkan build dan object tetap ada; `GCC_WRAPPER_FATAL_WARNINGS=1` mengembalikan
+  perilaku lama; error kompilasi asli tetap exit 1.
 
-Yang **belum** diuji:
+Belum diverifikasi:
 
-- Build penuh sampai menghasilkan zip. Kernel sudah lewat jauh, tapi tahap ROM
-  (HAL, `dtbToolOppo`, packaging) belum tuntas dibuktikan.
-- Hasil flashing ke perangkat fisik.
+- Fungsi per-perangkat keras setelah boot: WiFi, Bluetooth, kamera, GPS, panggilan/sinyal,
+  audio, sensor, pemutaran video.
+- Masih ada **43 berkas** yang berbeda dari ROM 17.1 pembanding, antara lain
+  `libshims_flp.so`, `libshims_get_process_name.so`, dan `libantradio.so`. Sebagian memang
+  wajar berbeda antar-build (`bin/healthd`, `etc/firmware/modem.b*`), sebagian bisa jadi
+  penyebab fitur tertentu mati.
 
-Kalau kamu menabrak error, tempel ~50 baris terakhir log-nya di Issues.
+Menemukan error? Sertakan ~50 baris terakhir `out/error.log` di Issues.
 
 ## Kredit
 
-- [@yashraj22](https://github.com/yashraj22), [@sheikhshahnawaz41299](https://github.com/sheikhshahnawaz41299) — device tree & kernel A37
-- [@DeepakChaurasia30](https://github.com/DeepakChaurasia30) — vendor tree & device tree 19.1
+- [@meghs-playground](https://github.com/meghs-playground) — device tree `rb`, vendor, dan kernel yang dipakai di sini
+- [@DeepakChaurasia30](https://github.com/DeepakChaurasia30) — tree `rb` hulu dan vendor A37
+- [@yashraj22](https://github.com/yashraj22), [@sheikhshahnawaz41299](https://github.com/sheikhshahnawaz41299) — device tree & kernel A37 generasi sebelumnya
 - Tim LineageOS dan kontributor msm8916/msm8939
 
 Build ini **UNOFFICIAL**. Pakai dengan risiko sendiri — salah flash bisa membuat perangkat brick.
