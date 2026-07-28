@@ -163,6 +163,7 @@ Opsi lain:
 ./build.sh --no-sync            # build ulang tanpa sync
 ./build.sh --recovery           # bangun recovery.img saja
 ./build.sh --clean              # bersihkan out/ device ini dulu
+./build.sh --installclean       # buang file terpasang yang basi (setelah ganti tree)
 ./build.sh --jobs 4             # batasi paralelisme (host RAM kecil)
 BUILD_DIR=/mnt/ssd/los17 ./build.sh
 BUILD_LABEL=none ./build.sh     # buang label pada nama zip
@@ -210,6 +211,19 @@ BUILD_LABEL=vanilla ./build.sh --no-sync   # ganti label
 Perlu diingat label ini bukan sekadar nama file — ia masuk ke `ro.lineage.version` di
 `build.prop`, jadi mengubahnya berarti build ulang tahap image + packaging (beberapa menit
 saja karena inkremental), bukan sekadar `mv`.
+
+### Setelah mengganti device tree atau vendor
+
+Wajib `--installclean` sekali. Build inkremental AOSP tidak membuang file yang tidak lagi
+diminta `PRODUCT_PACKAGES`, jadi sisa tree lama tetap ikut ke dalam image. Contoh nyata saat
+pindah ke tree `rb` — dua service memperebutkan instance `default` HAL yang sama:
+
+```
+android.hardware.light@2.0-service.a6000          ← sisa tree lama
+android.hardware.light@2.0-service.oppo_msm8916   ← yang benar
+android.hardware.bluetooth@1.0-service            ← sisa
+android.hardware.bluetooth@1.0-service-qti        ← yang benar
+```
 
 ## Hasil build
 

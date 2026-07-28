@@ -11,6 +11,8 @@
 #   ./build.sh --sync-only      # cuma siapkan source, jangan build
 #   ./build.sh --recovery       # build recovery.img saja
 #   ./build.sh --clean          # hapus out/ device ini dulu, lalu build
+#   ./build.sh --installclean   # buang file terpasang yang basi (wajib setelah
+#                               #   ganti device tree/vendor), lalu build
 #   BUILD_DIR=/mnt/ssd/los17 ./build.sh
 #   BUILD_LABEL=none ./build.sh    # buang label pada nama zip
 #
@@ -45,6 +47,7 @@ KERNEL_PY_MODE=""
 DO_SYNC=1
 DO_BUILD=1
 DO_CLEAN=0
+DO_INSTALLCLEAN=0
 BUILD_TARGET="rom"
 
 red()   { printf '\033[1;31m%s\033[0m\n' "$*"; }
@@ -53,7 +56,7 @@ info()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die()   { red "ERROR: $*"; exit 1; }
 
 usage() {
-    sed -n '3,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '3,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
@@ -62,6 +65,7 @@ while [[ $# -gt 0 ]]; do
         --no-sync)   DO_SYNC=0 ;;
         --sync-only) DO_BUILD=0 ;;
         --clean)     DO_CLEAN=1 ;;
+        --installclean) DO_INSTALLCLEAN=1 ;;
         --recovery)  BUILD_TARGET="recovery" ;;
         --jobs|-j)   JOBS="$2"; shift ;;
         --dir)       BUILD_DIR="$2"; shift ;;
@@ -278,6 +282,17 @@ build_rom() {
     if [[ "$DO_CLEAN" == "1" ]]; then
         info "Menghapus out/target/product/$DEVICE"
         rm -rf "out/target/product/$DEVICE"
+    fi
+
+    # Build inkremental AOSP tidak membuang file yang tidak lagi diminta
+    # PRODUCT_PACKAGES. Setelah ganti device tree/vendor, sisa lama tetap ikut
+    # ke dalam image — mis. dua service untuk satu HAL (light@2.0-service.a6000
+    # bersama light@2.0-service.oppo_msm8916), yang bisa membuat boot gagal.
+    if [[ "$DO_INSTALLCLEAN" == "1" ]]; then
+        info "installclean: membuang file terpasang yang basi"
+        set +eu
+        m installclean
+        set -eu
     fi
 
     local start_ts

@@ -1,0 +1,19 @@
+--- a/BoardConfig.mk
++++ b/BoardConfig.mk
+@@ -19,8 +19,14 @@
+ TARGET_BOOTLOADER_BOARD_NAME := MSM8916
+ TARGET_BOARD_PLATFORM := msm8916
+ TARGET_NO_BOOTLOADER := true
+-TARGET_KERNEL_CROSS_COMPILE_PREFIX := aarch64-linux-android-
+-KERNEL_TOOLCHAIN := /tmp/src/android/tc/bin
++# CATATAN: dua baris berikut dibuang karena menunjuk path mesin pembuat tree:
++#   TARGET_KERNEL_CROSS_COMPILE_PREFIX := aarch64-linux-android-
++#   KERNEL_TOOLCHAIN := /tmp/src/android/tc/bin
++# Menyetel TARGET_KERNEL_CROSS_COMPILE_PREFIX membuat vendor/lineage/config/
++# BoardConfigKernel.mk melewati default KERNEL_TOOLCHAIN_arm64, sehingga
++# CROSS_COMPILE menunjuk direktori yang tidak ada:
++#   ccache: error: execute_noreturn of /tmp/src/android/tc/bin/aarch64-linux-android-gcc
++# Tanpa keduanya, build memakai prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9.
+ 
+ # Temp build fix
+ BUILD_BROKEN_PHONY_TARGETS := true
