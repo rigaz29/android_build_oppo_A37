@@ -20,14 +20,28 @@ OPPO A37 (codename LineageOS: `A37`), Qualcomm **MSM8916 / Snapdragon 410**.
 | `patches/gcc-wrapper.py` | Versi python3 dari `scripts/gcc-wrapper.py` kernel, untuk host tanpa python2 |
 | `README.md` | Dokumen ini |
 
-## Source yang dipakai
+## Source yang dipakai — konfigurasi yang terbukti boot
 
-| Komponen | Repo | Branch | Path |
-|---|---|---|---|
-| device | [`yashraj22/device_oppo_A37`](https://github.com/yashraj22/device_oppo_A37) | `lineage-17.1` | `device/oppo/A37` |
-| vendor | [`DeepakChaurasia30/android-vendor_oppo_A37`](https://github.com/DeepakChaurasia30/android-vendor_oppo_A37) | `ten` | `vendor/oppo/A37` |
-| kernel | [`OPPO-A37/kernel_oppo_msm8939`](https://github.com/OPPO-A37/kernel_oppo_msm8939) | `0.0` | `kernel/oppo/msm8939` |
-| dependency | [`LineageOS/android_external_stlport`](https://github.com/LineageOS/android_external_stlport) | `lineage-15.1` | `external/stlport` |
+Kombinasi di bawah ini **terbukti boot sampai homescreen** pada 28 Juli 2026, dan
+`A37.xml` mem-pin keempatnya ke commit tersebut (`revision` = SHA, `upstream` = branch).
+
+| Komponen | Repo | Commit | Branch | Path |
+|---|---|---|---|---|
+| device | [`meghs-playground/rb_device_oppo_A37`](https://github.com/meghs-playground/rb_device_oppo_A37) | `e03d9844ea01` | `rb` | `device/oppo/A37` |
+| vendor | [`meghs-playground/rb-vendor_oppo_A37`](https://github.com/meghs-playground/rb-vendor_oppo_A37) | `6a644358bba6` | `lineage-17.1` | `vendor/oppo` |
+| kernel | [`meghs-playground/kernel_oppo_msm8939`](https://github.com/meghs-playground/kernel_oppo_msm8939) | `0efa2fea8099` | `0.0` | `kernel/oppo/msm8939` |
+| timekeep | [`LineageOS/android_hardware_sony_timekeep`](https://github.com/LineageOS/android_hardware_sony_timekeep) | `858c544d1ad1` | `lineage-17.1` | `hardware/sony/timekeep` |
+| stlport | [`LineageOS/android_external_stlport`](https://github.com/LineageOS/android_external_stlport) | — | `lineage-15.1` | `external/stlport` |
+
+Dua hal teknis soal pin ini:
+
+- **SHA harus lengkap 40 karakter.** `repo` memperlakukan SHA singkat sebagai nama branch;
+  sync akan gagal dengan `fatal: couldn't find remote ref refs/heads/<sha>`.
+- **`clone-depth="1"` pada kernel bisa bentrok dengan pin.** Kalau branch `0.0` kelak
+  bergerak melewati commit yang di-pin, clone dangkal tidak memuatnya. Solusinya hapus
+  atribut `clone-depth` pada project kernel di `A37.xml`.
+
+Ingin mengikuti perkembangan terbaru? Ganti `revision` dengan nama branch di `upstream`.
 
 Dua hal yang sering bikin orang salah pilih:
 
@@ -36,10 +50,12 @@ Dua hal yang sering bikin orang salah pilih:
    `arch/arm64/configs/lineageos_a37f_defconfig` berisi `CONFIG_ARCH_MSM8916=y` dan
    `CONFIG_MACH_15399=y`. Tiga device tree A37 yang berbeda (17.1, 18.1, 20)
    semuanya menunjuk ke `kernel/oppo/msm8939` + defconfig yang sama.
-2. **Vendor `yashraj22/vendor_oppo_A37f` jangan dipakai** untuk 17.1 — branch-nya hanya
-   `lineage-15.1` dan satu branch dump stock 5.1.1. Yang cocok untuk Android 10 adalah
-   branch `ten` milik DeepakChaurasia30, karena `device.mk` baris 527 memanggil
-   `$(call inherit-product, vendor/oppo/A37/A37-vendor.mk)`.
+2. **Vendor di-pasang ke `vendor/oppo`, bukan `vendor/oppo/A37`.** Root repo vendor `rb`
+   berisi folder `A37/`, jadi path project-nya satu tingkat di atas. Salah path membuat
+   `device.mk` gagal menemukan `vendor/oppo/A37/A37-vendor.mk`.
+3. **Device tree dan vendor harus sepasang.** Vendor `rb` membawa prebuilt
+   `bluetooth@1.0-service-qti`, `perf@1.0-service`, dan `iop@1.0/2.0`; mencampurnya dengan
+   device tree lain berisiko dua service memperebutkan instance `default` HAL yang sama.
 
 ## Syarat host
 

@@ -4,33 +4,48 @@
   Chipset: Qualcomm MSM8916 (Snapdragon 410), codename LineageOS: A37
 
   Taruh di: .repo/local_manifests/A37.xml
+
+  Keempat project di-pin ke commit tertentu (revision = SHA, upstream = branch
+  asalnya) karena kombinasi inilah yang terbukti boot sampai homescreen pada
+  28 Juli 2026. Branch bisa bergerak; pin ini menjaga hasil sync tetap sama.
+
+  Untuk mengikuti perkembangan terbaru, ganti revision dengan nama branch di
+  atribut upstream masing-masing.
+
+  SHA harus ditulis lengkap 40 karakter — repo memperlakukan SHA singkat sebagai
+  nama branch dan sync akan gagal dengan "couldn't find remote ref".
 -->
 <manifest>
   <remote name="gh" fetch="https://github.com/" />
 
   <!-- Device tree.
        Dipilih karena set komponennya paling dekat dengan ROM 17.1 yang terbukti
-       boot di perangkat: punya lights/ sendiri (bukan meminjam light HAL Lenovo
-       a6000), wcnss_oppo/, service livedisplay, dan dependency timekeep. -->
+       boot: punya lights/ sendiri (bukan meminjam light HAL Lenovo a6000),
+       wcnss_oppo/, service livedisplay, dan dependency timekeep. -->
   <project name="meghs-playground/rb_device_oppo_A37" path="device/oppo/A37"
-           remote="gh" revision="rb" />
+           remote="gh" revision="e03d9844ea01bc982379ed308664458193b32b12" upstream="rb" />
 
   <!-- Vendor blobs. Root repo berisi folder A37/, jadi path-nya vendor/oppo
        (BUKAN vendor/oppo/A37). A37-vendor.mk merujuk 328 file dan semuanya ada.
        Membawa prebuilt yang tidak punya sumber di tree: perf@1.0-service,
        iop@1.0/2.0, bluetooth@1.0-service-qti, drm widevine, time_daemon. -->
   <project name="meghs-playground/rb-vendor_oppo_A37" path="vendor/oppo"
-           remote="gh" revision="lineage-17.1" />
+           remote="gh" revision="6a644358bba6a1545ac9fe2070e67a5f47c24fb2" upstream="lineage-17.1" />
 
-  <!-- Kernel 3.10.108. Fork yang lebih baru daripada OPPO-A37/kernel_oppo_msm8939
-       (head 2026-06 vs 2022-03), defconfig sama: lineageos_a37f_defconfig dengan
-       CONFIG_ARCH_MSM8916=y + CONFIG_MACH_15399=y. -->
+  <!-- Kernel 3.10.108. Fork ini sudah membuang scripts/gcc-wrapper.py
+       (CC = $(CROSS_COMPILE)gcc), jadi tidak butuh python2 sama sekali.
+       Varian kernel_oppo_msm8939_ (akhiran garis bawah) adalah versi ber-root
+       KernelSU — pakai itu hanya kalau memang menginginkan root.
+
+       CATATAN clone-depth: kalau branch 0.0 kelak bergerak melewati commit yang
+       di-pin, `repo sync` akan gagal menemukannya pada clone dangkal. Solusinya
+       hapus atribut clone-depth di bawah ini, atau naikkan angkanya. -->
   <project name="meghs-playground/kernel_oppo_msm8939" path="kernel/oppo/msm8939"
-           remote="gh" revision="0.0" clone-depth="1" />
+           remote="gh" revision="0efa2fea80994383a6d8e33a1ba87e990b52ec12" upstream="0.0" clone-depth="1" />
 
   <!-- Dependency dari device/oppo/A37/lineage.dependencies -->
   <project name="LineageOS/android_hardware_sony_timekeep" path="hardware/sony/timekeep"
-           remote="gh" revision="lineage-17.1" />
+           remote="gh" revision="858c544d1ad1d4811a226372804acbf3011376ef" upstream="lineage-17.1" />
 
   <!-- Di-pin manual: LineageOS/android_external_stlport TIDAK punya branch
        lineage-17.1, roomservice akan gagal sync kalau dibiarkan. -->
