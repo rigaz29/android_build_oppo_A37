@@ -165,6 +165,8 @@ Opsi lain:
 ./build.sh --clean              # bersihkan out/ device ini dulu
 ./build.sh --jobs 4             # batasi paralelisme (host RAM kecil)
 BUILD_DIR=/mnt/ssd/los17 ./build.sh
+BUILD_LABEL=none ./build.sh     # buang label pada nama zip
+BUILD_LABEL=vanilla ./build.sh  # lineage-17.1-<tgl>-UNOFFICIAL-vanilla-A37.zip
 ```
 
 Default lokasi source: `~/los17` (ubah lewat `BUILD_DIR` atau `--dir`).
@@ -190,6 +192,24 @@ Tidak perlu menyiapkan toolchain kernel sendiri: pada LineageOS 17.1
 prebuilt (`prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9`) yang sudah ada di
 dalam source — persis yang dibutuhkan kernel 3.10. Device tree juga sudah membawa
 `dtbtool/` sendiri untuk `dtbToolOppo`.
+
+### Label pada nama zip
+
+LineageOS menyusun nama zip dari `TARGET_UNOFFICIAL_BUILD_ID`. Variabel itu gampang
+terwarisi dari `~/.bashrc` sisa build device lain, dan hasilnya zip A37 keluar dengan nama
+yang menyesatkan, misalnya `lineage-17.1-20260728-UNOFFICIAL-microG-ReSukiSU-A37.zip`
+padahal isinya LineageOS vanilla tanpa microG maupun KernelSU sama sekali.
+
+`build.sh` memperingatkan kalau variabel itu diwarisi dari environment. Untuk mengendalikannya:
+
+```bash
+BUILD_LABEL=none ./build.sh --no-sync      # hapus label
+BUILD_LABEL=vanilla ./build.sh --no-sync   # ganti label
+```
+
+Perlu diingat label ini bukan sekadar nama file — ia masuk ke `ro.lineage.version` di
+`build.prop`, jadi mengubahnya berarti build ulang tahap image + packaging (beberapa menit
+saja karena inkremental), bukan sekadar `mv`.
 
 ## Hasil build
 

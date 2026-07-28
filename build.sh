@@ -12,6 +12,7 @@
 #   ./build.sh --recovery       # build recovery.img saja
 #   ./build.sh --clean          # hapus out/ device ini dulu, lalu build
 #   BUILD_DIR=/mnt/ssd/los17 ./build.sh
+#   BUILD_LABEL=none ./build.sh    # buang label pada nama zip
 #
 # Host tanpa python2 (Ubuntu 24.04 dst.) otomatis dipatch: scripts/gcc-wrapper.py
 # milik kernel 3.10 diganti versi python3 dari patches/gcc-wrapper.py.
@@ -27,6 +28,10 @@ JOBS="${JOBS:-$(nproc --all)}"
 CCACHE_SIZE="${CCACHE_SIZE:-50G}"
 # Arsitektur prebuilt webview yang perlu objek LFS-nya. A37 userspace-nya 32-bit.
 LFS_ARCHS="${LFS_ARCHS:-arm}"
+# Label opsional pada nama zip: lineage-17.1-<tgl>-UNOFFICIAL[-<label>]-A37.zip.
+# Kosong = pakai apa pun yang ada di environment (dengan peringatan).
+# "none"  = paksa hapus.
+BUILD_LABEL="${BUILD_LABEL:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_MANIFEST="$SCRIPT_DIR/A37.xml"
@@ -48,7 +53,7 @@ info()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die()   { red "ERROR: $*"; exit 1; }
 
 usage() {
-    sed -n '3,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '3,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
@@ -224,6 +229,20 @@ build_rom() {
     [[ -d "$KERNEL_PATH" ]]        || die "$KERNEL_PATH tidak ada. Jalankan sync dulu."
 
     export LC_ALL=C
+
+    # LineageOS menyusun nama zip dari TARGET_UNOFFICIAL_BUILD_ID. Variabel itu
+    # gampang terwarisi dari ~/.bashrc milik build device lain, sehingga zip A37
+    # bisa keluar dengan label yang menyesatkan (mis. "-microG-ReSukiSU-").
+    if [[ "$BUILD_LABEL" == "none" ]]; then
+        unset TARGET_UNOFFICIAL_BUILD_ID
+        info "Label build dikosongkan"
+    elif [[ -n "$BUILD_LABEL" ]]; then
+        export TARGET_UNOFFICIAL_BUILD_ID="$BUILD_LABEL"
+        info "Label build: $BUILD_LABEL"
+    elif [[ -n "${TARGET_UNOFFICIAL_BUILD_ID:-}" ]]; then
+        red "PERINGATAN: TARGET_UNOFFICIAL_BUILD_ID='$TARGET_UNOFFICIAL_BUILD_ID' diwarisi dari environment (cek ~/.bashrc)."
+        red "Nama zip akan memuat label itu. Pakai BUILD_LABEL=none untuk membuangnya."
+    fi
 
     # envsetup.sh memakai variabel yang belum diset; matikan sementara `set -u`
     set +eu
