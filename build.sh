@@ -25,6 +25,8 @@ MANIFEST_URL="https://github.com/LineageOS/android.git"
 BUILD_DIR="${BUILD_DIR:-$HOME/los17}"
 JOBS="${JOBS:-$(nproc --all)}"
 CCACHE_SIZE="${CCACHE_SIZE:-50G}"
+# Arsitektur prebuilt webview yang perlu objek LFS-nya. A37 userspace-nya 32-bit.
+LFS_ARCHS="${LFS_ARCHS:-arm}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_MANIFEST="$SCRIPT_DIR/A37.xml"
@@ -127,11 +129,15 @@ check_host() {
 init_source() {
     cd "$BUILD_DIR"
 
+    # --git-lfs wajib: prebuilt webview.apk (~90 MB per arsitektur) disimpan lewat
+    # Git LFS. Tanpa flag ini yang tersync hanya file pointer 133 byte, dan build
+    # baru gagal di ujung dengan "failed opening zip: Invalid file".
     if [[ ! -d .repo ]]; then
         info "repo init $BRANCH (sekali saja, agak lama)"
-        repo init -u "$MANIFEST_URL" -b "$BRANCH" --no-clone-bundle
+        repo init -u "$MANIFEST_URL" -b "$BRANCH" --no-clone-bundle --git-lfs
     else
         info "Source tree sudah ada di $BUILD_DIR, lewati repo init"
+        repo init --git-lfs >/dev/null 2>&1 || true
     fi
 
     [[ -f "$LOCAL_MANIFEST" ]] || die "A37.xml tidak ditemukan di $SCRIPT_DIR"
@@ -151,7 +157,36 @@ sync_source() {
 }
 
 # ---------------------------------------------------------------------------
-# 4. Patch wrapper kernel untuk host tanpa python2
+# 4. Perbaiki prebuilt Git LFS yang masih berupa pointer
+# ---------------------------------------------------------------------------
+# Kalau tree pernah di-sync tanpa --git-lfs, webview.apk hanya berisi teks
+# "version https://git-lfs.github.com/spec/v1" sebesar ~133 byte. Build tetap
+# jalan sampai 98% lalu gagal di:
+#   target Prebuilt: webview ... error: failed opening zip: Invalid file.
+fix_lfs_pointers() {
+    local arch dir apk pulled=0
+
+    for arch in $LFS_ARCHS; do
+        dir="$BUILD_DIR/external/chromium-webview/prebuilt/$arch"
+        apk="$dir/webview.apk"
+
+        [[ -f "$apk" ]] || continue
+        head -c 40 "$apk" | grep -q "git-lfs.github.com" || continue
+
+        command -v git-lfs >/dev/null || die "webview.apk masih pointer LFS tapi git-lfs belum terpasang:
+    sudo apt install git-lfs"
+
+        info "Menarik objek Git LFS untuk prebuilt/$arch (~90 MB)"
+        ( cd "$dir" && git lfs install --local >/dev/null 2>&1; git lfs pull )
+        pulled=1
+    done
+
+    [[ "$pulled" == "1" ]] && green "Prebuilt LFS beres"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# 5. Patch wrapper kernel untuk host tanpa python2
 # ---------------------------------------------------------------------------
 patch_kernel_python() {
     local wrapper="$BUILD_DIR/$KERNEL_PATH/scripts/gcc-wrapper.py"
@@ -179,7 +214,7 @@ patch_kernel_python() {
 }
 
 # ---------------------------------------------------------------------------
-# 5. Build
+# 6. Build
 # ---------------------------------------------------------------------------
 build_rom() {
     cd "$BUILD_DIR"
@@ -230,6 +265,7 @@ main() {
     if [[ "$DO_SYNC" == "1" ]]; then
         sync_source
     fi
+    fix_lfs_pointers
     patch_kernel_python
     if [[ "$DO_BUILD" == "1" ]]; then
         build_rom

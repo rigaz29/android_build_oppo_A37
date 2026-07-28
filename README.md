@@ -16,7 +16,7 @@ OPPO A37 (codename LineageOS: `A37`), Qualcomm **MSM8916 / Snapdragon 410**.
 | File | Fungsi |
 |---|---|
 | `A37.xml` | Local manifest — device tree, vendor blobs, kernel, dependency |
-| `build.sh` | Script satu-jalan: cek host → `repo init` → `repo sync` → patch → build |
+| `build.sh` | Script satu-jalan: cek host → `repo init` → `repo sync` → perbaiki LFS → patch kernel → build |
 | `patches/gcc-wrapper.py` | Versi python3 dari `scripts/gcc-wrapper.py` kernel, untuk host tanpa python2 |
 | `README.md` | Dokumen ini |
 
@@ -118,6 +118,32 @@ Kalau kamu ingin gerbang lama itu kembali:
 GCC_WRAPPER_FATAL_WARNINGS=1 ./build.sh --no-sync
 ```
 
+### Prebuilt webview dan Git LFS
+
+`repo init` **wajib** memakai `--git-lfs`. Prebuilt `external/chromium-webview/prebuilt/arm/webview.apk`
+(~91 MB) disimpan lewat Git LFS; tanpa flag itu yang tersync hanya file pointer 133 byte
+berisi teks `version https://git-lfs.github.com/spec/v1`. Build tetap jalan sampai ~98%
+lalu gagal di ujung:
+
+```
+FAILED: target Prebuilt: webview (out/.../webview_intermediates/package.apk)
+out/.../package.apk: error: failed opening zip: Invalid file.
+veridex E ... Expected valid zip or dex file
+```
+
+`build.sh` sekarang memakai `--git-lfs` saat init, dan `fix_lfs_pointers()` mendeteksi
+pointer yang tersisa pada tree lama lalu menarik objeknya. Perbaikan manual:
+
+```bash
+cd ~/los17/external/chromium-webview/prebuilt/arm
+git lfs install --local && git lfs pull
+```
+
+Perhatikan tiap arsitektur adalah project repo terpisah (`prebuilt/arm`, `prebuilt/arm64`,
+`prebuilt/x86`, `prebuilt/x86_64`) — direktori induk `external/chromium-webview` sendiri
+bukan git repo, jadi `git lfs pull` di sana akan menjawab *"Not in a Git repository"*.
+A37 hanya butuh `arm`; atur lewat `LFS_ARCHS="arm arm64"` kalau perlu yang lain.
+
 AOSP tidak menyediakan python2 sendiri untuk tahap ini: di `kernel.mk` LineageOS 17.1 ada
 `PATH_OVERRIDE += $(TOOLS_PATH_OVERRIDE)`, tapi `TOOLS_PATH_OVERRIDE` tidak didefinisikan
 di `build/core/config.mk` branch tersebut — jadi wrapper memang mengambil python dari host.
@@ -147,7 +173,7 @@ Default lokasi source: `~/los17` (ubah lewat `BUILD_DIR` atau `--dir`).
 
 ```bash
 mkdir -p ~/los17 && cd ~/los17
-repo init -u https://github.com/LineageOS/android.git -b lineage-17.1 --no-clone-bundle
+repo init -u https://github.com/LineageOS/android.git -b lineage-17.1 --no-clone-bundle --git-lfs
 mkdir -p .repo/local_manifests && cp /path/ke/A37.xml .repo/local_manifests/
 repo sync -c --no-clone-bundle --no-tags --force-sync -j$(nproc --all)
 
@@ -203,6 +229,7 @@ Zip aman untuk semua varian: `TARGET_OTA_ASSERT_DEVICE := a37f,A37f,A37fw,a37fw,
 | `breakfast A37` → device not found | Path harus persis `device/oppo/A37` (huruf besar), dan `repo sync` harus jalan setelah local manifest dipasang |
 | Ninja terbunuh / host kehabisan RAM | Tambah swap 16 GB atau `./build.sh --jobs 4` |
 | `unsupported reloc 43` / error linker 32-bit | Paket multilib kurang: `gcc-multilib g++-multilib lib32z1-dev` |
+| `failed opening zip: Invalid file` pada target `webview` | Objek Git LFS belum ditarik — lihat bagian "Prebuilt webview dan Git LFS" |
 | Build berhenti tanpa pesan jelas | Ulangi `./build.sh --no-sync`; error asli biasanya muncul di ~200 baris terakhir |
 
 ## Yang harus diterima apa adanya
