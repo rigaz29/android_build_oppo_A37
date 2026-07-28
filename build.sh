@@ -199,7 +199,9 @@ patch_kernel_python() {
     [[ "$KERNEL_PY_MODE" == "python3" ]] || return 0
 
     if [[ ! -f "$wrapper" ]]; then
-        red "PERINGATAN: $KERNEL_PATH/scripts/gcc-wrapper.py belum ada, lewati patch (sync dulu?)"
+        # Kernel meghs sudah membuang wrapper ini (CC = $(CROSS_COMPILE)gcc),
+        # jadi ketiadaannya normal — bukan tanda sync yang belum jalan.
+        info "Kernel tidak memakai gcc-wrapper.py, patch python3 tidak diperlukan"
         return 0
     fi
 
@@ -219,7 +221,29 @@ patch_kernel_python() {
 }
 
 # ---------------------------------------------------------------------------
-# 6. Build
+# 6. Patch device tree
+# ---------------------------------------------------------------------------
+patch_device_tree() {
+    local dt="$BUILD_DIR/device/oppo/$DEVICE" p name
+    [[ -d "$dt" ]] || return 0
+
+    shopt -s nullglob
+    for p in "$SCRIPT_DIR"/patches/device-A37-*.patch; do
+        name="$(basename "$p")"
+        if patch -p1 -d "$dt" --dry-run --silent < "$p" >/dev/null 2>&1; then
+            patch -p1 -d "$dt" --silent < "$p"
+            green "Patch device tree diterapkan: $name"
+        elif patch -p1 -R -d "$dt" --dry-run --silent < "$p" >/dev/null 2>&1; then
+            info "Patch device tree sudah terpasang: $name"
+        else
+            red "PERINGATAN: $name tidak cocok dengan device tree ini — dilewati"
+        fi
+    done
+    shopt -u nullglob
+}
+
+# ---------------------------------------------------------------------------
+# 7. Build
 # ---------------------------------------------------------------------------
 build_rom() {
     cd "$BUILD_DIR"
@@ -286,6 +310,7 @@ main() {
     fi
     fix_lfs_pointers
     patch_kernel_python
+    patch_device_tree
     if [[ "$DO_BUILD" == "1" ]]; then
         build_rom
     else

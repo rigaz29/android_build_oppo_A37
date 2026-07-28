@@ -8,28 +8,32 @@
 <manifest>
   <remote name="gh" fetch="https://github.com/" />
 
-  <!-- Device tree -->
-  <project name="yashraj22/device_oppo_A37" path="device/oppo/A37"
+  <!-- Device tree.
+       Dipilih karena set komponennya paling dekat dengan ROM 17.1 yang terbukti
+       boot di perangkat: punya lights/ sendiri (bukan meminjam light HAL Lenovo
+       a6000), wcnss_oppo/, service livedisplay, dan dependency timekeep. -->
+  <project name="meghs-playground/rb_device_oppo_A37" path="device/oppo/A37"
+           remote="gh" revision="rb" />
+
+  <!-- Vendor blobs. Root repo berisi folder A37/, jadi path-nya vendor/oppo
+       (BUKAN vendor/oppo/A37). A37-vendor.mk merujuk 328 file dan semuanya ada.
+       Membawa prebuilt yang tidak punya sumber di tree: perf@1.0-service,
+       iop@1.0/2.0, bluetooth@1.0-service-qti, drm widevine, time_daemon. -->
+  <project name="meghs-playground/rb-vendor_oppo_A37" path="vendor/oppo"
            remote="gh" revision="lineage-17.1" />
 
-  <!-- Vendor blobs (Android 10). device.mk memanggil vendor/oppo/A37/A37-vendor.mk -->
-  <project name="DeepakChaurasia30/android-vendor_oppo_A37" path="vendor/oppo/A37"
-           remote="gh" revision="ten" />
-
-  <!--
-    Kernel 3.10.108. Nama repo "msm8939" menyesatkan: ini source drop gabungan
-    OPPO msm8916/msm8939, dan lineageos_a37f_defconfig di dalamnya memakai
-    CONFIG_ARCH_MSM8916=y + CONFIG_MACH_15399=y (nomor proyek OPPO A37).
-    clone-depth=1 karena repo ini ~445k commit.
-  -->
-  <project name="OPPO-A37/kernel_oppo_msm8939" path="kernel/oppo/msm8939"
+  <!-- Kernel 3.10.108. Fork yang lebih baru daripada OPPO-A37/kernel_oppo_msm8939
+       (head 2026-06 vs 2022-03), defconfig sama: lineageos_a37f_defconfig dengan
+       CONFIG_ARCH_MSM8916=y + CONFIG_MACH_15399=y. -->
+  <project name="meghs-playground/kernel_oppo_msm8939" path="kernel/oppo/msm8939"
            remote="gh" revision="0.0" clone-depth="1" />
 
-  <!--
-    Dependency dari device/oppo/A37/lineage.dependencies.
-    Di-pin manual ke lineage-15.1 karena LineageOS/android_external_stlport
-    TIDAK punya branch lineage-17.1 (roomservice akan gagal sync kalau dibiarkan).
-  -->
+  <!-- Dependency dari device/oppo/A37/lineage.dependencies -->
+  <project name="LineageOS/android_hardware_sony_timekeep" path="hardware/sony/timekeep"
+           remote="gh" revision="lineage-17.1" />
+
+  <!-- Di-pin manual: LineageOS/android_external_stlport TIDAK punya branch
+       lineage-17.1, roomservice akan gagal sync kalau dibiarkan. -->
   <project name="LineageOS/android_external_stlport" path="external/stlport"
            remote="gh" revision="lineage-15.1" />
 </manifest>
