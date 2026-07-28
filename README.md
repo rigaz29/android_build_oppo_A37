@@ -16,7 +16,8 @@ OPPO A37 (codename LineageOS: `A37`), Qualcomm **MSM8916 / Snapdragon 410**.
 | File | Fungsi |
 |---|---|
 | `A37.xml` | Local manifest — device tree, vendor blobs, kernel, dependency |
-| `build.sh` | Script satu-jalan: cek host → `repo init` → `repo sync` → build |
+| `build.sh` | Script satu-jalan: cek host → `repo init` → `repo sync` → patch → build |
+| `patches/gcc-wrapper.py` | Versi python3 dari `scripts/gcc-wrapper.py` kernel, untuk host tanpa python2 |
 | `README.md` | Dokumen ini |
 
 ## Source yang dipakai
@@ -42,7 +43,8 @@ Dua hal yang sering bikin orang salah pilih:
 
 ## Syarat host
 
-- **Ubuntu 20.04 LTS** (di 22.04+ paket `lib32ncurses5-dev` / `libncurses5` sudah dibuang)
+- **Ubuntu 20.04 LTS** paling aman. 22.04 umumnya masih bisa. **24.04 belum tentu** —
+  paket 32-bit legacy seperti `lib32ncurses5-dev` sudah tidak ada kandidatnya di sana.
 - RAM ≥ 8 GB (16 GB ideal; kalau 8 GB tambahkan swap 16 GB)
 - Disk kosong ≥ 200 GB
 - Kuota internet ~60 GB untuk sync pertama
@@ -63,10 +65,38 @@ git config --global user.name  "Nama Kamu"
 git config --global user.email "kamu@example.com"
 ```
 
-> **`python2` wajib, tapi jangan pasang `python-is-python2`.**
-> Kernel 3.10 ini memakai `scripts/gcc-wrapper.py` yang shebang-nya `#!/usr/bin/env python2`
-> (lihat `Makefile` baris 345: `CC = $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)`),
-> sementara `repo` butuh python3. Cukup sediakan binary `python2`; jangan ubah symlink `python`.
+> **Kalau `python2` tidak tersedia di distromu, itu tidak masalah** — lihat bagian berikut.
+> Yang penting: **jangan pasang `python-is-python2`**, karena `repo` butuh python3 dan
+> symlink itu akan merusaknya.
+
+### Soal python2 pada distro modern
+
+Kernel 3.10 memanggil compiler lewat wrapper python2 — `Makefile` baris 345:
+
+```make
+CC = $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
+```
+
+dan `scripts/gcc-wrapper.py` shebang-nya `#!/usr/bin/env python2` serta masih memakai
+`print` statement gaya python2. Di host tanpa python2 build kernel berhenti dengan
+`env: 'python2': No such file or directory`. Ubuntu 24.04 sudah tidak menyediakan paket
+python2 sama sekali (`apt-cache policy python2` → *Candidate: (none)*).
+
+`build.sh` menangani ini otomatis:
+
+- kalau `python2` ada → wrapper asli dipakai apa adanya;
+- kalau tidak ada tapi `python3` ada → `patches/gcc-wrapper.py` disalin ke
+  `kernel/oppo/msm8939/scripts/gcc-wrapper.py`, aslinya disimpan sebagai
+  `gcc-wrapper.py.orig`. Idempoten, aman dijalankan berulang;
+- kalau dua-duanya tidak ada → script berhenti dengan pesan jelas.
+
+Versi python3-nya menjaga perilaku asli: output stderr compiler diteruskan apa adanya,
+warning di luar daftar `allowed_warnings` tetap menggagalkan build dan menghapus object
+file-nya. Yang berubah hanya `print()` sebagai fungsi dan decoding stderr dari bytes.
+
+AOSP tidak menyediakan python2 sendiri untuk tahap ini: di `kernel.mk` LineageOS 17.1 ada
+`PATH_OVERRIDE += $(TOOLS_PATH_OVERRIDE)`, tapi `TOOLS_PATH_OVERRIDE` tidak didefinisikan
+di `build/core/config.mk` branch tersebut — jadi wrapper memang mengambil python dari host.
 
 ## Cara pakai
 
@@ -96,6 +126,9 @@ mkdir -p ~/los17 && cd ~/los17
 repo init -u https://github.com/LineageOS/android.git -b lineage-17.1 --no-clone-bundle
 mkdir -p .repo/local_manifests && cp /path/ke/A37.xml .repo/local_manifests/
 repo sync -c --no-clone-bundle --no-tags --force-sync -j$(nproc --all)
+
+# Hanya kalau host tidak punya python2:
+cp /path/ke/patches/gcc-wrapper.py kernel/oppo/msm8939/scripts/gcc-wrapper.py
 
 source build/envsetup.sh
 breakfast A37
@@ -140,7 +173,8 @@ Zip aman untuk semua varian: `TARGET_OTA_ASSERT_DEVICE := a37f,A37f,A37fw,a37fw,
 
 | Gejala | Sebab & solusi |
 |---|---|
-| `env: 'python2': No such file or directory` saat build kernel | `sudo apt install python2` (bukan `python-is-python2`) |
+| `env: 'python2': No such file or directory` saat build kernel | Jalankan lewat `build.sh` (wrapper otomatis dipatch ke python3), atau manual: `cp patches/gcc-wrapper.py ~/los17/kernel/oppo/msm8939/scripts/gcc-wrapper.py` |
+| Build kernel gagal dengan `error, forbidden warning: <file>:<baris>` | Perilaku asli wrapper, bukan efek patch: warning di luar `allowed_warnings` digagalkan. Perbaiki warning-nya, atau tambahkan `"<file>:<baris>"` ke `allowed_warnings` di `scripts/gcc-wrapper.py` |
 | `repo sync` gagal pada `external/stlport` | Repo itu tidak punya branch `lineage-17.1`; `A37.xml` sudah mem-pin ke `lineage-15.1` |
 | `breakfast A37` → device not found | Path harus persis `device/oppo/A37` (huruf besar), dan `repo sync` harus jalan setelah local manifest dipasang |
 | Ninja terbunuh / host kehabisan RAM | Tambah swap 16 GB atau `./build.sh --jobs 4` |
@@ -161,6 +195,28 @@ Zip aman untuk semua varian: `TARGET_OTA_ASSERT_DEVICE := a37f,A37f,A37fw,a37fw,
 - **LineageOS 17.1 sudah EOL di hulu** — tidak ada patch keamanan baru untuk branch ini.
   Kalau ingin lebih baru: device tree [`udyneos-prjkt/android_device_oppo_A37`](https://github.com/udyneos-prjkt/android_device_oppo_A37)
   branch `lineage-18.1`, vendor branch `lineage-19.1`, kernel tetap sama.
+
+## Status pengujian
+
+Yang sudah diuji:
+
+- `build.sh` lolos `bash -n`, parsing argumen dan `--help` benar.
+- Guard host bekerja: pada Ubuntu 24.04 tanpa python2 script berhenti rapi, dan setelah
+  patch ditambahkan ia lanjut ke mode python3.
+- `patches/gcc-wrapper.py` diuji langsung dengan gcc: kompilasi bersih lolos (exit 0),
+  warning terlarang menghasilkan `error, forbidden warning:`, object file dihapus, exit 1 —
+  sama seperti versi python2.
+- `patch_kernel_python()` diuji pada tree tiruan: backup `.orig` dibuat, pemanggilan kedua
+  tidak mengubah apa pun (idempoten).
+
+Yang **belum** diuji:
+
+- Rangkaian penuh `repo init` → `repo sync` (~60 GB) → `mka bacon` belum pernah dijalankan
+  sampai menghasilkan zip. Jadi kemungkinan masih ada kendala khas host modern
+  (paket 32-bit legacy, glibc/openssl baru) yang belum tertangkap di sini.
+- Hasil flashing ke perangkat fisik.
+
+Kalau kamu menabrak error, tempel ~50 baris terakhir log-nya di Issues.
 
 ## Kredit
 

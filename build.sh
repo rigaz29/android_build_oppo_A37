@@ -13,6 +13,9 @@
 #   ./build.sh --clean          # hapus out/ device ini dulu, lalu build
 #   BUILD_DIR=/mnt/ssd/los17 ./build.sh
 #
+# Host tanpa python2 (Ubuntu 24.04 dst.) otomatis dipatch: scripts/gcc-wrapper.py
+# milik kernel 3.10 diganti versi python3 dari patches/gcc-wrapper.py.
+#
 
 set -euo pipefail
 
@@ -25,6 +28,12 @@ CCACHE_SIZE="${CCACHE_SIZE:-50G}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_MANIFEST="$SCRIPT_DIR/A37.xml"
+PY3_WRAPPER="$SCRIPT_DIR/patches/gcc-wrapper.py"
+PY3_MARKER="LOS17-A37-PY3-WRAPPER"
+KERNEL_PATH="kernel/oppo/msm8939"
+
+# Diisi oleh check_host: "python2" (pakai wrapper asli) atau "python3" (perlu patch)
+KERNEL_PY_MODE=""
 
 DO_SYNC=1
 DO_BUILD=1
@@ -37,7 +46,7 @@ info()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die()   { red "ERROR: $*"; exit 1; }
 
 usage() {
-    sed -n '3,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '3,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
@@ -67,11 +76,21 @@ check_host() {
     chmod a+x ~/bin/repo && export PATH=~/bin:\$PATH"
 
     # Kernel 3.10 memakai scripts/gcc-wrapper.py dengan shebang python2.
-    # Tanpa binary python2, build kernel berhenti dengan:
+    # Tanpa binary python2 build kernel berhenti dengan:
     #   env: 'python2': No such file or directory
-    command -v python2 >/dev/null || die "python2 belum terpasang (WAJIB untuk kernel 3.10).
-    Jalankan: sudo apt install python2
+    # Kalau host tidak punya python2 (Ubuntu 24.04 sudah tidak menyediakannya),
+    # wrapper itu diganti versi python3 dari patches/ oleh patch_kernel_python().
+    if command -v python2 >/dev/null; then
+        KERNEL_PY_MODE="python2"
+        info "python2 tersedia — scripts/gcc-wrapper.py dipakai apa adanya"
+    elif command -v python3 >/dev/null; then
+        KERNEL_PY_MODE="python3"
+        info "python2 tidak ada — wrapper kernel akan diganti versi python3"
+    else
+        die "Butuh python2 atau python3 di host. Install salah satu:
+    sudo apt install python3
     Catatan: JANGAN pasang python-is-python2, itu merusak repo tool."
+    fi
 
     git config --get user.email >/dev/null 2>&1 || die "git user.email belum diset:
     git config --global user.email \"kamu@example.com\"
@@ -132,14 +151,40 @@ sync_source() {
 }
 
 # ---------------------------------------------------------------------------
-# 4. Build
+# 4. Patch wrapper kernel untuk host tanpa python2
+# ---------------------------------------------------------------------------
+patch_kernel_python() {
+    local wrapper="$BUILD_DIR/$KERNEL_PATH/scripts/gcc-wrapper.py"
+
+    [[ "$KERNEL_PY_MODE" == "python3" ]] || return 0
+
+    if [[ ! -f "$wrapper" ]]; then
+        red "PERINGATAN: $KERNEL_PATH/scripts/gcc-wrapper.py belum ada, lewati patch (sync dulu?)"
+        return 0
+    fi
+
+    if grep -q "$PY3_MARKER" "$wrapper"; then
+        info "Wrapper kernel sudah versi python3"
+        return 0
+    fi
+
+    [[ -f "$PY3_WRAPPER" ]] || die "patches/gcc-wrapper.py tidak ditemukan di $SCRIPT_DIR"
+
+    [[ -f "${wrapper}.orig" ]] || cp "$wrapper" "${wrapper}.orig"
+    cp "$PY3_WRAPPER" "$wrapper"
+    chmod +x "$wrapper"
+    green "scripts/gcc-wrapper.py diganti versi python3 (asli disimpan sebagai gcc-wrapper.py.orig)"
+}
+
+# ---------------------------------------------------------------------------
+# 5. Build
 # ---------------------------------------------------------------------------
 build_rom() {
     cd "$BUILD_DIR"
 
     [[ -d "device/oppo/$DEVICE" ]] || die "device/oppo/$DEVICE tidak ada. Jalankan sync dulu."
     [[ -d "vendor/oppo/$DEVICE" ]] || die "vendor/oppo/$DEVICE tidak ada. Jalankan sync dulu."
-    [[ -d "kernel/oppo/msm8939" ]] || die "kernel/oppo/msm8939 tidak ada. Jalankan sync dulu."
+    [[ -d "$KERNEL_PATH" ]]        || die "$KERNEL_PATH tidak ada. Jalankan sync dulu."
 
     export LC_ALL=C
 
@@ -183,6 +228,7 @@ main() {
     if [[ "$DO_SYNC" == "1" ]]; then
         sync_source
     fi
+    patch_kernel_python
     if [[ "$DO_BUILD" == "1" ]]; then
         build_rom
     else
@@ -190,4 +236,7 @@ main() {
     fi
 }
 
-main "$@"
+# Hanya jalan kalau dieksekusi langsung, supaya fungsinya bisa di-source untuk tes
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
