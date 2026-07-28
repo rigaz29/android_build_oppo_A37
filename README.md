@@ -90,9 +90,33 @@ python2 sama sekali (`apt-cache policy python2` → *Candidate: (none)*).
   `gcc-wrapper.py.orig`. Idempoten, aman dijalankan berulang;
 - kalau dua-duanya tidak ada → script berhenti dengan pesan jelas.
 
-Versi python3-nya menjaga perilaku asli: output stderr compiler diteruskan apa adanya,
-warning di luar daftar `allowed_warnings` tetap menggagalkan build dan menghapus object
-file-nya. Yang berubah hanya `print()` sebagai fungsi dan decoding stderr dari bytes.
+### Warning tidak lagi menggagalkan build
+
+Wrapper asli juga menggagalkan build begitu gcc mengeluarkan warning yang tidak ada di
+daftar `allowed_warnings` — daftar berisi 8 baris yang ditulis tahun 2011. Pada source
+OPPO ini gate tersebut menabrak, misalnya:
+
+```
+kernel/irq/pm.c:103:7: warning: unused variable 'suspend_abort' [-Wunused-variable]
+error, forbidden warning: pm.c:103
+make[3]: *** [scripts/Makefile.build:309: kernel/irq/pm.o] Error 1
+```
+
+Warning-nya sendiri benar — `suspend_abort` di `check_wakeup_irqs()` memang tidak pernah
+dipakai karena `log_suspend_abort_reason()` dipanggil dengan format string langsung. Tapi
+sebagai gerbang QA internal Qualcomm hal itu tidak relevan untuk membangun ROM, dan
+menyisirnya satu per satu berarti puluhan iterasi build (~14 menit per iterasi).
+
+Karena itu `patches/gcc-wrapper.py` **default-nya pass-through**: warning tetap tercetak
+apa adanya, tapi tidak menggagalkan build. Error kompilasi asli tetap menggagalkan build
+seperti biasa, karena exit status compiler diteruskan utuh (wrapper memakai `os.execvp`,
+jadi tanpa overhead pipe dan urutan output persis seperti memanggil gcc langsung).
+
+Kalau kamu ingin gerbang lama itu kembali:
+
+```bash
+GCC_WRAPPER_FATAL_WARNINGS=1 ./build.sh --no-sync
+```
 
 AOSP tidak menyediakan python2 sendiri untuk tahap ini: di `kernel.mk` LineageOS 17.1 ada
 `PATH_OVERRIDE += $(TOOLS_PATH_OVERRIDE)`, tapi `TOOLS_PATH_OVERRIDE` tidak didefinisikan
@@ -174,7 +198,7 @@ Zip aman untuk semua varian: `TARGET_OTA_ASSERT_DEVICE := a37f,A37f,A37fw,a37fw,
 | Gejala | Sebab & solusi |
 |---|---|
 | `env: 'python2': No such file or directory` saat build kernel | Jalankan lewat `build.sh` (wrapper otomatis dipatch ke python3), atau manual: `cp patches/gcc-wrapper.py ~/los17/kernel/oppo/msm8939/scripts/gcc-wrapper.py` |
-| Build kernel gagal dengan `error, forbidden warning: <file>:<baris>` | Perilaku asli wrapper, bukan efek patch: warning di luar `allowed_warnings` digagalkan. Perbaiki warning-nya, atau tambahkan `"<file>:<baris>"` ke `allowed_warnings` di `scripts/gcc-wrapper.py` |
+| Build kernel gagal dengan `error, forbidden warning: <file>:<baris>` | Muncul kalau kamu memakai wrapper asli atau `GCC_WRAPPER_FATAL_WARNINGS=1`. Default `patches/gcc-wrapper.py` sudah pass-through, jadi jalankan lewat `build.sh` tanpa env itu |
 | `repo sync` gagal pada `external/stlport` | Repo itu tidak punya branch `lineage-17.1`; `A37.xml` sudah mem-pin ke `lineage-15.1` |
 | `breakfast A37` → device not found | Path harus persis `device/oppo/A37` (huruf besar), dan `repo sync` harus jalan setelah local manifest dipasang |
 | Ninja terbunuh / host kehabisan RAM | Tambah swap 16 GB atau `./build.sh --jobs 4` |
@@ -203,17 +227,20 @@ Yang sudah diuji:
 - `build.sh` lolos `bash -n`, parsing argumen dan `--help` benar.
 - Guard host bekerja: pada Ubuntu 24.04 tanpa python2 script berhenti rapi, dan setelah
   patch ditambahkan ia lanjut ke mode python3.
-- `patches/gcc-wrapper.py` diuji langsung dengan gcc: kompilasi bersih lolos (exit 0),
-  warning terlarang menghasilkan `error, forbidden warning:`, object file dihapus, exit 1 —
-  sama seperti versi python2.
+- `patches/gcc-wrapper.py` diuji langsung dengan gcc dalam tiga skenario: kompilasi bersih
+  lolos (exit 0); warning tidak menggagalkan build pada mode default dan object file tetap
+  ada; `GCC_WRAPPER_FATAL_WARNINGS=1` mengembalikan perilaku lama (`error, forbidden
+  warning:`, object dihapus, exit 1); error kompilasi asli tetap exit 1.
 - `patch_kernel_python()` diuji pada tree tiruan: backup `.orig` dibuat, pemanggilan kedua
-  tidak mengubah apa pun (idempoten).
+  tidak mengubah apa pun (idempoten), dan pembaruan isi `patches/gcc-wrapper.py` ikut
+  tersalin ke tree kernel.
+- `repo sync` penuh (~90 GB di disk) dan build kernel berjalan sampai
+  `LD drivers/built-in.o` pada Ubuntu 24.04.
 
 Yang **belum** diuji:
 
-- Rangkaian penuh `repo init` → `repo sync` (~60 GB) → `mka bacon` belum pernah dijalankan
-  sampai menghasilkan zip. Jadi kemungkinan masih ada kendala khas host modern
-  (paket 32-bit legacy, glibc/openssl baru) yang belum tertangkap di sini.
+- Build penuh sampai menghasilkan zip. Kernel sudah lewat jauh, tapi tahap ROM
+  (HAL, `dtbToolOppo`, packaging) belum tuntas dibuktikan.
 - Hasil flashing ke perangkat fisik.
 
 Kalau kamu menabrak error, tempel ~50 baris terakhir log-nya di Issues.

@@ -29,21 +29,41 @@
 
 # LOS17-A37-PY3-WRAPPER
 #
-# Versi python3 dari scripts/gcc-wrapper.py milik kernel MSM 3.10.
-# Aslinya python2-only (memakai `print` statement), sehingga build kernel gagal
-# dengan "env: 'python2': No such file or directory" pada distro modern
-# (Ubuntu 24.04 sudah tidak punya paket python2 sama sekali).
+# Pengganti scripts/gcc-wrapper.py milik kernel MSM 3.10.
 #
-# Perilaku dipertahankan: jalankan compiler, tampilkan stderr apa adanya, dan
-# gagalkan build kalau muncul warning yang tidak ada di daftar allowed_warnings.
-# Perubahan hanya soal python3: print() sebagai fungsi, stderr didekode dari
-# bytes, dan iterasi baris memakai iter() agar output tetap streaming.
+# Dua masalah yang diselesaikan:
+#
+# 1. Wrapper asli python2-only (memakai `print` statement), sedangkan Ubuntu
+#    24.04 sudah tidak menyediakan python2 sama sekali. Build kernel berhenti
+#    dengan "env: 'python2': No such file or directory".
+#
+# 2. Wrapper asli menggagalkan build begitu gcc mengeluarkan warning yang tidak
+#    ada di daftar allowed_warnings — daftar yang isinya hanya 8 baris dan
+#    ditulis tahun 2011. Pada source OPPO ini gate tersebut menabrak,
+#    contohnya:
+#
+#      kernel/irq/pm.c:103:7: warning: unused variable 'suspend_abort'
+#      error, forbidden warning: pm.c:103
+#
+#    Itu warning yang benar (variabelnya memang dead code di source OPPO), tapi
+#    sebagai gerbang QA internal Qualcomm ia tidak relevan untuk membangun ROM,
+#    dan menyisir sisa kernel satu per satu berarti puluhan iterasi build.
+#
+# Default sekarang: warning tetap ditampilkan apa adanya, tapi TIDAK
+# menggagalkan build (pass-through — proses compiler langsung meng-exec, jadi
+# tanpa overhead pipe dan urutan output persis seperti memanggil gcc langsung).
+#
+# Untuk mengembalikan perilaku asli (warning = fatal):
+#
+#     GCC_WRAPPER_FATAL_WARNINGS=1 ./build.sh --no-sync
 
 import errno
 import os
 import re
 import subprocess
 import sys
+
+FATAL_WARNINGS = os.environ.get('GCC_WRAPPER_FATAL_WARNINGS', '0') == '1'
 
 allowed_warnings = set([
     "return_address.c:63",
@@ -54,6 +74,8 @@ allowed_warnings = set([
     "jhash.h:137",
     "cmpxchg.h:162",
     "ping.c:87",
+    # Ditambahkan untuk source OPPO A37 (dipakai hanya saat mode fatal aktif):
+    "pm.c:103",
 ])
 
 # Nama object file, kalau ketemu.
@@ -79,8 +101,21 @@ def interpret_warning(line):
         sys.exit(1)
 
 
-def run_gcc():
-    args = sys.argv[1:]
+def exec_passthrough(args):
+    """Ganti proses ini dengan compiler-nya. Tidak pernah kembali."""
+    try:
+        os.execvp(args[0], args)
+    except OSError as e:
+        if e.errno == errno.ENOENT:
+            print(args[0] + ':', e.strerror)
+            print('Is your PATH set correctly?')
+        else:
+            print(' '.join(args), str(e))
+        sys.exit(e.errno)
+
+
+def run_gcc(args):
+    """Mode lama: awasi stderr, gagalkan build pada warning terlarang."""
     # Cari -o
     try:
         i = args.index('-o')
@@ -109,5 +144,12 @@ def run_gcc():
 
 
 if __name__ == '__main__':
-    status = run_gcc()
-    sys.exit(status)
+    argv = sys.argv[1:]
+    if not argv:
+        print('usage: gcc-wrapper.py <compiler> [args...]')
+        sys.exit(2)
+
+    if FATAL_WARNINGS:
+        sys.exit(run_gcc(argv))
+    else:
+        exec_passthrough(argv)

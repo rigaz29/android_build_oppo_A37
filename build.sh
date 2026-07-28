@@ -163,12 +163,14 @@ patch_kernel_python() {
         return 0
     fi
 
-    if grep -q "$PY3_MARKER" "$wrapper"; then
-        info "Wrapper kernel sudah versi python3"
+    [[ -f "$PY3_WRAPPER" ]] || die "patches/gcc-wrapper.py tidak ditemukan di $SCRIPT_DIR"
+
+    # Bandingkan isi, bukan sekadar cek marker: kalau patches/gcc-wrapper.py
+    # diperbarui, tree kernel ikut diperbarui juga.
+    if cmp -s "$PY3_WRAPPER" "$wrapper"; then
+        info "Wrapper kernel sudah versi terbaru ($PY3_MARKER)"
         return 0
     fi
-
-    [[ -f "$PY3_WRAPPER" ]] || die "patches/gcc-wrapper.py tidak ditemukan di $SCRIPT_DIR"
 
     [[ -f "${wrapper}.orig" ]] || cp "$wrapper" "${wrapper}.orig"
     cp "$PY3_WRAPPER" "$wrapper"
