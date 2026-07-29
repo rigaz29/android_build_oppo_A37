@@ -23,15 +23,17 @@
        boot: punya lights/ sendiri (bukan meminjam light HAL Lenovo a6000),
        wcnss_oppo/, service livedisplay, dan dependency timekeep.
 
-       Fork ini sudah memuat empat commit di atas e03d984 (hulu):
+       Fork ini sudah memuat enam commit di atas e03d984 (hulu):
          01a59b5  buang path toolchain /tmp/src/android/tc milik pembuat tree
          19131e6  bangun cryptfshw@1.0-service-qti.qsee, bukan cuma -base
          a5c1eaf  perbaikan sisa kang a6000 + file yang lupa disambungkan
          cfd1d2e  buang tuning/fitur yang tidak diimplementasikan kernel
+         cb55417  pasang libwpa_client supaya imsdatadaemon bisa jalan (VoLTE)
+         22dab4b  arahkan blob stats_algorithm ke shim yang benar
        Tiga yang pertama isinya sama persis dengan patches/device-A37-*.patch,
        jadi build.sh melaporkannya "sudah terpasang" dan tidak menambal lagi. -->
   <project name="rigaz29/rb_device_oppo_A37" path="device/oppo/A37"
-           remote="gh" revision="cfd1d2e94a046073707fb0cc03a6428f28053417" upstream="rb" />
+           remote="gh" revision="22dab4ba29a4fa6655851c7bfbb03ea57ac5e380" upstream="rb" />
 
   <!-- Vendor blobs. Root repo berisi folder A37/, jadi path-nya vendor/oppo
        (BUKAN vendor/oppo/A37). A37-vendor.mk merujuk 328 file dan semuanya ada.

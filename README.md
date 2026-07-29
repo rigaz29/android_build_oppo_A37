@@ -36,7 +36,7 @@ supaya `repo sync` kapan pun menghasilkan tree yang sama.
 
 | Komponen | Repo | Commit | Branch | Path |
 |---|---|---|---|---|
-| device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `cfd1d2e94a04` | `rb` | `device/oppo/A37` |
+| device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `22dab4ba29a4` | `rb` | `device/oppo/A37` |
 | vendor | [`meghs-playground/rb-vendor_oppo_A37`](https://github.com/meghs-playground/rb-vendor_oppo_A37) | `6a644358bba6` | `lineage-17.1` | `vendor/oppo` |
 | kernel | [`meghs-playground/kernel_oppo_msm8939`](https://github.com/meghs-playground/kernel_oppo_msm8939) | `0efa2fea8099` | `0.0` | `kernel/oppo/msm8939` |
 | timekeep | [`LineageOS/android_hardware_sony_timekeep`](https://github.com/LineageOS/android_hardware_sony_timekeep) | `858c544d1ad1` | `lineage-17.1` | `hardware/sony/timekeep` |
@@ -62,7 +62,7 @@ Varian kernel [`kernel_oppo_msm8939_`](https://github.com/meghs-playground/kerne
 ### Device tree memakai fork sendiri
 
 Device tree menunjuk ke fork [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37),
-bukan repo hulu. Fork ini berisi tiga commit di atas `e03d984`:
+bukan repo hulu. Fork ini berisi enam commit di atas `e03d984`:
 
 | Commit | Isi | Sama dengan |
 |---|---|---|
@@ -70,6 +70,8 @@ bukan repo hulu. Fork ini berisi tiga commit di atas `e03d984`:
 | `19131e6` | Bangun `cryptfshw@1.0-service-qti.qsee`, bukan cuma `-base` | `patches/device-A37-cryptfshw.patch` |
 | `a5c1eaf` | Perbaikan sisa kang a6000 + file yang lupa disambungkan | `patches/device-A37-fixes.patch` |
 | `cfd1d2e` | Buang tuning/fitur yang tidak diimplementasikan kernel | — (hasil [analisis kernel](#analisis-kernel)) |
+| `cb55417` | Pasang `libwpa_client` supaya `imsdatadaemon` bisa jalan | — (hasil [audit ELF](#audit-dependency-elf-dan-simbol)) |
+| `22dab4b` | Arahkan blob `stats_algorithm` ke shim yang benar | — (hasil [audit ELF](#audit-dependency-elf-dan-simbol)) |
 
 Artinya **`patches/device-A37-*.patch` sudah tidak perlu diterapkan lagi** kalau memakai
 manifest ini — `build.sh` akan melaporkan ketiganya "sudah terpasang" dan lanjut tanpa
@@ -599,6 +601,85 @@ sysctl `sched_*` dan `extra_free_kbytes`, `/sys/class/sensors`, `lcd-backlight`,
 (cocok cmdline ramoops), `CONFIG_DM_REQ_CRYPT` (cocok `TARGET_HW_DISK_ENCRYPTION`),
 `CONFIG_SDCARD_FS`, `CONFIG_SECURITY_SELINUX`.
 
+## Audit dependency ELF dan simbol
+
+Dijalankan terhadap ROM yang sudah terbangun, bukan terhadap makefile — jadi yang diuji
+adalah apa yang benar-benar mendarat di image.
+
+**Metode.** Seluruh `DT_NEEDED` dari 1159 ELF di image di-resolusi secara transitif untuk
+tiap service init, lalu tiap simbol `UND` dari blob kamera dicek terhadap gabungan simbol
+yang didefinisikan seluruh library di image.
+
+> Dua jebakan alat yang sempat menghasilkan temuan palsu, dicatat supaya tidak terulang:
+> `system/lib/libc.so` adalah **symlink ke APEX runtime** sehingga tidak ikut terpindai
+> `find -type f`; dan bionic mengekspor `memcpy`/`strcpy`/`strlen` sebagai **IFUNC**, yang
+> `readelf` cetak sebagai `<OS specific>: 10` — string berspasi yang menggeser kolom `awk`.
+> Keduanya bikin fungsi libc tampak "hilang". Memakai `nm -D` menghilangkan kedua masalah.
+
+### Temuan 1 — `imsdatadaemon` tidak bisa start (diperbaiki, `cb55417`)
+
+Satu-satunya service dengan dependency benar-benar hilang: `vendor/bin/imsdatadaemon`
+membutuhkan `libwpa_client.so` yang tidak terpasang, jadi mati saat `dlopen`.
+`init.target.rc` menyalakannya ketika `sys.ims.QMI_DAEMON_STATUS=1` dan `device.mk`
+sengaja mengaktifkan VoLTE (`persist.dbg.ims_volte_enable=1`,
+`persist.dbg.volte_avail_ovr=1`) — jadi VoLTE tidak mungkin pernah bekerja. Modulnya ada
+di `external/wpa_supplicant_8` dan sudah `LOCAL_PROPRIETARY_MODULE`, jadi cukup
+menambahkannya ke `PRODUCT_PACKAGES`.
+
+Enam dependency hilang lainnya **tidak berbahaya** dan sengaja dibiarkan:
+`libqti-perfd.so` (butuh `libthermalclient.so`) punya **nol konsumen** di image, sedangkan
+`lib-imsvt.so` (video telephony) dan `libvpplibrary.so` (post-processing video) opsional.
+
+### Temuan 2 — shim kamera salah sasaran (diperbaiki, `22dab4b`)
+
+`TARGET_LD_SHIM_LIBS` memetakan `libmmcamera2_stats_algorithm.so` ke `libcamera_shim.so`.
+Setelah seluruh simbol `UND` blob itu diresolusi terhadap semua library **non-shim** di
+image, tersisa persis satu yang tidak terpenuhi: `android_atomic_acquire_load`. Simbol itu
+diekspor `libshim_camera.so` (dari `libshims/atomic.cpp`) dan **tidak ada** di
+`libcamera_shim.so`. Lebih jauh, irisan ekspor `libcamera_shim.so` dengan simbol `UND`
+blob tersebut **kosong** — shim itu tidak menyumbang apa pun untuknya.
+
+Kemungkinan besar selama ini tampak jalan karena `mm-qcamera-daemon` juga memuat
+`libmmcamera2_stats_modules.so` di proses yang sama, dan blob itu dipetakan dengan benar ke
+`libshim_camera.so`, sehingga simbolnya kebetulan sudah ada. Artinya 3A kamera bergantung
+pada urutan pemuatan library, bukan pada pemetaan shim yang benar.
+
+### Seberapa banyak shim yang sebenarnya terpakai
+
+`libshim_camera.so` mengekspor 81 simbol, tapi yang benar-benar **hanya bisa** dipenuhi
+olehnya cuma 6:
+
+| Blob | Simbol yang wajib dari shim |
+|---|---|
+| `libmmcamera2_stats_modules.so` | `android::SensorManager::SensorManager()` |
+| `camera.vendor.msm8916.so` | 5 konstanta `CameraParameters` (`KEY_APP_MASK`, `KEY_TRACK_AREAS`, `KEY_TRACK_ENABLE`, `WHITE_BALANCE_MANUAL_CCT`, `FOCUS_MODE_MANUAL_POSITION`) |
+| `libmmcamera2_stats_algorithm.so` | `android_atomic_acquire_load` |
+
+Sisanya mati. Fungsi NDK `ASensor*` di `libshims/android/sensor.cpp` tidak dibutuhkan
+(sudah disediakan `libandroid.so`), dan **seluruh** isi `libcamera_shim.so` tidak dipakai
+siapa pun — termasuk `libEvtLoading`/`libEvtUnloading` dan statik
+`Singleton<SensorManager>`, yang juga tidak muncul sebagai string di biner mana pun
+sehingga bukan pula lookup `dlsym`. Modulnya tetap dibiarkan terbangun karena membuangnya
+adalah kerapian yang layak diuji di perangkat dulu, dan ongkosnya nyaris nol.
+
+### Shim mati yang berisiko kalau suatu saat dihidupkan
+
+Beberapa shim menulis nama mangled C++ dengan tangan dan **menghilangkan parameter `this`**,
+mengandalkan argumen lewat begitu saja di register. Untuk forwarder tipis itu jalan, tapi
+tidak untuk yang mengubah jumlah argumen:
+
+- `ui/GraphicBuffer.cpp` meneruskan konstruktor 4-argumen ke versi 5-argumen. Karena `this`
+  tidak ada di signature, `std::string requestorName` mendarat di slot `usage` dan
+  `requestorName` menerima sampah.
+- `justshoot_shim.cpp` menyediakan `sensorservice::V1_0::toString(Result)` sebagai fungsi
+  `void` kosong, padahal aslinya mengembalikan `std::string` (lewat pointer sret di ARM32).
+  Pemanggilnya akan membaca memori yang tidak pernah diinisialisasi.
+- `MetaData.cpp` dan `StopWatch` punya pergeseran argumen serupa, tapi tidak berbahaya
+  karena isinya tidak men-dereference apa pun.
+
+**Semua simbol ini terbukti tidak dipakai siapa pun di image**, jadi ini masalah laten, bukan
+bug aktif. Dicatat di sini supaya tidak dipakai ulang mentah-mentah untuk device lain.
+
 ## Yang harus diterima apa adanya
 
 - **SELinux permissive** — dihardcode di device tree
@@ -654,10 +735,21 @@ Commit `cfd1d2e` (hasil [analisis kernel](#analisis-kernel)) diverifikasi dengan
 - `m selinux_policy` sukses setelah `sepolicy/file.te` dihapus; policy dan
   `power.msm8916.so` yang terbangun nol referensi `proc_touchpanel`/DT2W.
 
+Commit `cb55417` dan `22dab4b` (hasil [audit ELF](#audit-dependency-elf-dan-simbol))
+diverifikasi dengan:
+
+- `m libwpa_client` sukses, `libwpa_client.so` mendarat di `/system/vendor/lib/`, dan
+  closure dependency transitif `imsdatadaemon` kini **lengkap** (sebelumnya kurang satu).
+- Dengan `libshim_camera.so`, simbol `libmmcamera2_stats_algorithm.so` yang tak terpenuhi
+  **nol**; pemetaan baru sampai utuh ke `Target_shim_libs` di `out/soong/soong.variables`.
+
 Belum diverifikasi:
 
 - **Build ROM penuh belum dijalankan ulang setelah patch ini**, begitu juga boot di
   perangkat. Yang diverifikasi baru tahap parse makefile, sepolicy, dan modul terkait.
+- **VoLTE benar-benar bekerja** — yang dibuktikan baru daemonnya tidak lagi gagal `dlopen`.
+- **Kamera** — perbaikan shim menghilangkan ketergantungan pada urutan pemuatan, tapi
+  fungsinya tetap perlu diuji di perangkat.
 - Fungsi per-perangkat keras setelah boot: WiFi, Bluetooth, kamera, GPS, panggilan/sinyal,
   audio, sensor, pemutaran video.
 - Efek nyata perbaikan `overlay-lineage` di Settings > Buttons — perlu HP.
