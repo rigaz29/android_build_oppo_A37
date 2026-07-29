@@ -23,6 +23,9 @@ untuk apa yang sudah dan belum diverifikasi.
 | `patches/device-A37-cryptfshw.patch` | Menambah `cryptfshw@1.0-service-qti.qsee` ke `PRODUCT_PACKAGES` |
 | `patches/device-A37-toolchain.patch` | Membuang path toolchain milik mesin pembuat device tree |
 | `patches/gcc-wrapper.py` | Versi python3 dari wrapper kernel — hanya perlu untuk kernel selain yang di-pin |
+| `build-kernel-resukisu.sh` | Bangun kernel + root ReSukiSU, keluar sebagai zip AnyKernel3 |
+| `patches/kernel-resukisu-hooks.patch` | Enam hook manual ReSukiSU + backport `READ_ONCE` untuk kernel 3.10 |
+| `KERNEL-RESUKISU.md` | Panduan kernel + ReSukiSU (jalur otomatis & manual) |
 | `README.md` | Dokumen ini |
 
 ## Konfigurasi yang terbukti boot
@@ -253,6 +256,15 @@ lalu `mka bacon` ulang.
 | `installclean` | `--installclean` | `m installclean` |
 
 ---
+
+## Kernel dengan root (opsional)
+
+Ingin kernel yang sama plus root [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU), dibungkus
+zip AnyKernel3? Lihat **[KERNEL-RESUKISU.md](KERNEL-RESUKISU.md)** — ada jalur otomatis
+(`./build-kernel-resukisu.sh`) dan jalur manual langkah demi langkah, termasuk rincian enam
+hook untuk kernel 3.10 dan alasan `READ_ONCE` perlu di-backport.
+
+Catatan: modul ala Magisk tidak akan berfungsi karena 3.10 tidak punya overlayfs.
 
 ## Hasil build
 
