@@ -36,7 +36,7 @@ supaya `repo sync` kapan pun menghasilkan tree yang sama.
 
 | Komponen | Repo | Commit | Branch | Path |
 |---|---|---|---|---|
-| device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `75e71a4b20ec` | `rb` | `device/oppo/A37` |
+| device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `70f2ce6729c4` | `rb` | `device/oppo/A37` |
 | vendor | [`meghs-playground/rb-vendor_oppo_A37`](https://github.com/meghs-playground/rb-vendor_oppo_A37) | `6a644358bba6` | `lineage-17.1` | `vendor/oppo` |
 | kernel | [`meghs-playground/kernel_oppo_msm8939`](https://github.com/meghs-playground/kernel_oppo_msm8939) | `0efa2fea8099` | `0.0` | `kernel/oppo/msm8939` |
 | timekeep | [`LineageOS/android_hardware_sony_timekeep`](https://github.com/LineageOS/android_hardware_sony_timekeep) | `858c544d1ad1` | `lineage-17.1` | `hardware/sony/timekeep` |
@@ -62,7 +62,7 @@ Varian kernel [`kernel_oppo_msm8939_`](https://github.com/meghs-playground/kerne
 ### Device tree memakai fork sendiri
 
 Device tree menunjuk ke fork [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37),
-bukan repo hulu. Fork ini berisi tujuh commit di atas `e03d984`:
+bukan repo hulu. Fork ini berisi delapan commit di atas `e03d984`:
 
 | Commit | Isi | Sama dengan |
 |---|---|---|
@@ -73,6 +73,7 @@ bukan repo hulu. Fork ini berisi tujuh commit di atas `e03d984`:
 | `cb55417` | Pasang `libwpa_client` supaya `imsdatadaemon` bisa jalan | — (hasil [audit ELF](#audit-dependency-elf-dan-simbol)) |
 | `22dab4b` | Arahkan blob `stats_algorithm` ke shim yang benar | — (hasil [audit ELF](#audit-dependency-elf-dan-simbol)) |
 | `75e71a4` | Implementasikan `powerHint` + `setInteractive` di power HAL | — (lihat [Power HAL](#power-hal)) |
+| `70f2ce6` | zram: berhenti meminta compressor yang tidak ada — swap jadi hidup | — (lihat [zram dan swap](#zram-dan-swap)) |
 
 Artinya **`patches/device-A37-*.patch` sudah tidak perlu diterapkan lagi** kalau memakai
 manifest ini — `build.sh` akan melaporkan ketiganya "sudah terpasang" dan lanjut tanpa
@@ -544,14 +545,14 @@ cache kompresi di depan swap device, jadi keduanya bersamaan = kompresi ganda) d
 
 ### Belum diperbaiki
 
-- **zram tetap memakai lzo, bukan lz4.** `init.target.rc` menulis `lz4` ke
-  `comp_algorithm`, tapi `CONFIG_ZRAM_LZ4_COMPRESS` mati. Dan **tidak bisa sekadar
-  dinyalakan**: kernel ini tidak punya `lib/lz4/` maupun simbol Kconfig
+- **zram sekarang memakai lzo.** Lihat [zram dan swap](#zram-dan-swap) — versi awal catatan
+  ini menyebut baris `comp_algorithm lz4` "gagal diam-diam dan zram tetap jalan dengan lzo".
+  **Itu keliru**: yang terjadi adalah kegagalan keras yang membuat swap tidak ada sama
+  sekali. Sudah diperbaiki di commit `70f2ce6`. Memakai lz4 sungguhan tetap perlu backport
+  `lib/lz4` lebih dulu — kernel ini tidak punya `lib/lz4/` maupun simbol Kconfig
   `LZ4_COMPRESS`/`LZ4_DECOMPRESS`, sedangkan `drivers/block/zram/zcomp_lz4.c` memanggil
   `lz4_compress()` dan `lz4_decompress_unknownoutputsize()` yang **nol hasil** di seluruh
-  pohon. Menyalakan opsi itu akan menggagalkan link kernel. Perlu backport `lib/lz4`
-  (~700 baris dari 3.11+) lebih dulu. Dampak sekarang: satu baris init gagal diam-diam,
-  zram tetap jalan dengan lzo — tidak berbahaya, hanya tidak seoptimal yang diniatkan.
+  pohon, jadi menyalakan `CONFIG_ZRAM_LZ4_COMPRESS` akan menggagalkan link kernel.
 - **exFAT tidak didukung.** Kernel nol berkas exfat/sdfat, padahal ROM sudah memasang
   `mkfs.exfat` dan `fsck.exfat`, dan vold 17.1 menentukan dukungan lewat
   `IsFilesystemSupported("exfat")` yang membaca `/proc/filesystems`. Kartu microSD
@@ -680,6 +681,66 @@ tidak untuk yang mengubah jumlah argumen:
 
 **Semua simbol ini terbukti tidak dipakai siapa pun di image**, jadi ini masalah laten, bukan
 bug aktif. Dicatat di sini supaya tidak dipakai ulang mentah-mentah untuk device lain.
+
+## zram dan swap
+
+**Device ini sebelumnya tidak punya swap sama sekali** — bukan swap yang lambat, tapi
+tidak ada. Ini koreksi atas catatan saya sebelumnya yang menyebutnya "gagal diam-diam,
+zram tetap jalan dengan lzo".
+
+`init.target.rc` menulis `lz4` ke `/sys/block/zram0/comp_algorithm`. Yang sebenarnya terjadi:
+
+1. `comp_algorithm_store()` **tidak memvalidasi** nama — hanya `strlcpy` lalu `return len`.
+   Jadi write-nya **sukses** dan `zram->compressor` menjadi `"lz4"`.
+2. Di `post-fs`, `swapon_all` menulis `disksize` → `disksize_store()` →
+   `zcomp_create("lz4")` → `find_backend("lz4")` = NULL karena `CONFIG_ZRAM_LZ4_COMPRESS`
+   mati → kernel mencetak `Cannot initialise lz4 compressing backend` dan gagal `-EINVAL`.
+3. `disksize` tidak pernah terpasang → zram0 berkapasitas 0 → `mkswap` gagal → `swapon` gagal.
+
+Diperbaiki di `70f2ce6` dengan membuang baris itu, sehingga zram memakai
+`default_compressor = "lzo"` (`zram_drv.c:41`) yang memang terbangun.
+
+### Ukuran zram
+
+`fstab.qcom` menyetel `zramsize=268435456` (256 MB). Dengan carveout modem/adsp/venus di
+DTS (±180 MB dari 2 GB), `MemTotal` device ini kira-kira **1,8 GB** — jadi 256 MB ≈ 14%.
+
+`zramsize` adalah kapasitas **belum terkompresi**. RAM fisik yang benar-benar terpakai =
+ukuran terkompresi, jadi dengan rasio lzo tipikal ~2,5:1 sebuah zram 256 MB memakan
+±100 MB RAM fisik saat penuh.
+
+| Ukuran | % MemTotal | RAM fisik saat penuh (±2,5:1) | Catatan |
+|---|---|---|---|
+| 256 MB | ~14% | ~100 MB | **Sekarang.** Konservatif, aman sebagai baseline |
+| 512 MB | ~27% | ~200 MB | Rasio lazim untuk perangkat Android 2 GB |
+| ≥768 MB | ≥40% | ≥300 MB | Tidak disarankan di Snapdragon 410 |
+
+LMK sudah disetel mulai membunuh aplikasi cached di bawah **180 MB** bebas
+(`minfree` 46080 halaman × 4 KB). Itu batas yang perlu diperhatikan: pada 512 MB, konsumsi
+fisik saat penuh (~200 MB) mulai bersaing dengan ambang itu, meski jarang benar-benar penuh.
+
+**Saran: pertahankan 256 MB dulu.** Alasannya bukan karena 256 MB pasti optimal, tapi karena
+swap belum pernah benar-benar hidup di device ini — mengubah ukurannya di build yang sama
+dengan perbaikan bug berarti kamu tidak bisa tahu perubahan mana yang berdampak apa.
+Ukur dulu, baru naikkan.
+
+Cara mengukur (berkas berikut sudah dipastikan ada di kernel ini):
+
+```bash
+cat /proc/swaps                      # pertama-tama: swap-nya benar-benar naik?
+cat /sys/block/zram0/mm_stat         # orig_data_size compr_data_size mem_used_total
+                                     #   mem_limit mem_used_max same_pages pages_compacted
+cat /sys/block/zram0/mem_used_max    # puncak RAM fisik yang pernah dipakai zram
+```
+
+Rasio kompresi = `orig_data_size / compr_data_size`. Kalau `mem_used_max` konsisten
+mendekati kapasitas penuh, zram jenuh dan layak dinaikkan ke 512 MB. Kalau jauh di bawah,
+256 MB sudah cukup.
+
+`fstab` juga menerima bentuk persentase (`zramsize=25%`, dihitung dari `_SC_PHYS_PAGES`
+sehingga otomatis menyesuaikan RAM) dan opsi `max_comp_streams=N`. Yang terakhir itu knob
+terpisah yang belum disetel: kernel default-nya **1** (`zram_drv.c:807`), padahal SoC ini
+quad-core, jadi kompresi swap-out tidak paralel.
 
 ## Power HAL
 
@@ -819,6 +880,9 @@ Belum diverifikasi:
 - **Build ROM penuh belum dijalankan ulang setelah patch ini**, begitu juga boot di
   perangkat. Yang diverifikasi baru tahap parse makefile, sepolicy, dan modul terkait.
 - **VoLTE benar-benar bekerja** — yang dibuktikan baru daemonnya tidak lagi gagal `dlopen`.
+- **swap zram benar-benar naik** ([`70f2ce6`](#zram-dan-swap)) — yang dibuktikan baru bahwa
+  berkas init terpasang tidak lagi memuat `write ... comp_algorithm`. Wajib dicek di
+  perangkat dengan `cat /proc/swaps`; sebelum ini isinya pasti kosong.
 - **Efek nyata power HAL** ([`75e71a4`](#power-hal)) — yang diverifikasi baru bahwa kedua
   path tunable ada di `.so`, `power_hint`/`power_set_interactive` ada di tabel simbol,
   aturan sepolicy masuk policy terbangun, dan `boost_gov_sys`/`boostpulse_gov_sys` memang
