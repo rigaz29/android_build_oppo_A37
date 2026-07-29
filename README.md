@@ -36,7 +36,7 @@ supaya `repo sync` kapan pun menghasilkan tree yang sama.
 
 | Komponen | Repo | Commit | Branch | Path |
 |---|---|---|---|---|
-| device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `a5c1eafd8f81` | `rb` | `device/oppo/A37` |
+| device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `cfd1d2e94a04` | `rb` | `device/oppo/A37` |
 | vendor | [`meghs-playground/rb-vendor_oppo_A37`](https://github.com/meghs-playground/rb-vendor_oppo_A37) | `6a644358bba6` | `lineage-17.1` | `vendor/oppo` |
 | kernel | [`meghs-playground/kernel_oppo_msm8939`](https://github.com/meghs-playground/kernel_oppo_msm8939) | `0efa2fea8099` | `0.0` | `kernel/oppo/msm8939` |
 | timekeep | [`LineageOS/android_hardware_sony_timekeep`](https://github.com/LineageOS/android_hardware_sony_timekeep) | `858c544d1ad1` | `lineage-17.1` | `hardware/sony/timekeep` |
@@ -69,6 +69,7 @@ bukan repo hulu. Fork ini berisi tiga commit di atas `e03d984`:
 | `01a59b5` | Buang path toolchain `/tmp/src/android/tc` milik pembuat tree | `patches/device-A37-toolchain.patch` |
 | `19131e6` | Bangun `cryptfshw@1.0-service-qti.qsee`, bukan cuma `-base` | `patches/device-A37-cryptfshw.patch` |
 | `a5c1eaf` | Perbaikan sisa kang a6000 + file yang lupa disambungkan | `patches/device-A37-fixes.patch` |
+| `cfd1d2e` | Buang tuning/fitur yang tidak diimplementasikan kernel | — (hasil [analisis kernel](#analisis-kernel)) |
 
 Artinya **`patches/device-A37-*.patch` sudah tidak perlu diterapkan lagi** kalau memakai
 manifest ini — `build.sh` akan melaporkan ketiganya "sudah terpasang" dan lanjut tanpa
@@ -216,6 +217,7 @@ yang isinya sudah memuat ketiga patch. Cukup verifikasi bahwa yang tersync meman
 
 ```bash
 git -C device/oppo/A37 log --oneline -4
+# cfd1d2e A37: Drop tuning and features the kernel does not implement
 # a5c1eaf A37: Fix leftovers from device kanging and unwired files
 # 19131e6 A37: Build the cryptfshw HAL service, not just its base
 # 01a59b5 A37: Drop hardcoded toolchain path from BoardConfig
@@ -509,6 +511,94 @@ Akar masalah yang berulang: tree ini punya jejak **kang dari device lain**
   padahal yang dibangun `drm@1.2-service.clearkey`. `mediadrmserver` akan mencatat
   error saat mencari instance itu; tidak fatal.
 
+## Analisis kernel
+
+`kernel_oppo_msm8939 @ 0efa2fe` (3.10.108) dianalisis dengan ruang lingkup terbatas —
+**bukan** audit kode 681 MB kernel vendor 2016, karena itu tidak tertangani dan nilainya
+rendah. Yang diperiksa: kontrak sysfs device tree ↔ kernel, defconfig vs kebutuhan ROM,
+dan patch ReSukiSU.
+
+Metodenya: 133 path `/sys` dan `/proc` yang ditulis init rc dan sumber HAL diekstrak, lalu
+dicek satu per satu ke sumber kernel. `defconfig` di-expand jadi `.config` sungguhan
+(`make ARCH=arm64 O=… lineageos_a37f_defconfig`) karena berkas `*_defconfig` berformat
+minimal — opsi yang sama dengan default dihilangkan, jadi "tidak ada di defconfig" **bukan**
+berarti mati. DTS di-expand penuh dengan `cpp` untuk tahu perangkat apa yang benar-benar
+terdaftar.
+
+### Sudah diperbaiki (commit `cfd1d2e`)
+
+| Temuan | Kondisi kernel |
+|---|---|
+| `init.target.rc` tuning zswap (4 baris) | `CONFIG_ZSWAP` butuh `depends on FRONTSWAP && CRYPTO=y`; `CONFIG_FRONTSWAP` mati → kconfig membuang ZSWAP dari `.config`, `/sys/module/zswap/` tidak pernah ada. Param `zpool` bahkan tidak ada di versi zswap ini |
+| `init.target.rc` tuning KSM (3 baris) | `# CONFIG_KSM is not set` |
+| Power HAL double-tap-to-wake | `doubletap2wake` dan `android_touch` **nol hasil** di seluruh pohon kernel. Mati ganda: overlay juga tidak menyetel `config_supportsDoubleTapWake`, jadi framework tidak pernah memanggil `setFeature` |
+| sepolicy `proc_touchpanel` + label `/sys/android_touch` | Ikut dibuang bersama DT2W; tidak ada aturan allow yang memakainya |
+| `TARGET_EXFAT_DRIVER := sdfat` | Variabel **tidak dibaca apa pun** di LineageOS 17.1 — satu-satunya kemunculan di seluruh tree adalah baris itu sendiri |
+
+Sengaja **tidak** dinyalakan: zswap (swap device sudah zram yang mengompresi; zswap adalah
+cache kompresi di depan swap device, jadi keduanya bersamaan = kompresi ganda) dan KSM
+(ongkos CPU scanning di Snapdragon 410 tidak sepadan).
+
+### Belum diperbaiki
+
+- **zram tetap memakai lzo, bukan lz4.** `init.target.rc` menulis `lz4` ke
+  `comp_algorithm`, tapi `CONFIG_ZRAM_LZ4_COMPRESS` mati. Dan **tidak bisa sekadar
+  dinyalakan**: kernel ini tidak punya `lib/lz4/` maupun simbol Kconfig
+  `LZ4_COMPRESS`/`LZ4_DECOMPRESS`, sedangkan `drivers/block/zram/zcomp_lz4.c` memanggil
+  `lz4_compress()` dan `lz4_decompress_unknownoutputsize()` yang **nol hasil** di seluruh
+  pohon. Menyalakan opsi itu akan menggagalkan link kernel. Perlu backport `lib/lz4`
+  (~700 baris dari 3.11+) lebih dulu. Dampak sekarang: satu baris init gagal diam-diam,
+  zram tetap jalan dengan lzo — tidak berbahaya, hanya tidak seoptimal yang diniatkan.
+- **exFAT tidak didukung.** Kernel nol berkas exfat/sdfat, padahal ROM sudah memasang
+  `mkfs.exfat` dan `fsck.exfat`, dan vold 17.1 menentukan dukungan lewat
+  `IsFilesystemSupported("exfat")` yang membaca `/proc/filesystems`. Kartu microSD
+  ber-exFAT (umumnya yang >32GB) tidak akan ter-mount sampai driver di-port.
+- **LED notifikasi sebenarnya LED pengisian daya.** Setelah DTS A37 di-expand penuh, LED
+  yang terdaftar hanya `button-backlight` dan `flashlight`. LED bernama `red` memang ada,
+  tapi didaftarkan oleh **driver charger** (`drivers/power/qpnp-linear-charger.c:1152`,
+  `CONFIG_QPNP_LINEAR_CHARGER=y`) dan hanya punya `brightness_set`/`brightness_get`.
+  Akibatnya pada `lights/Light.cpp`:
+  `/sys/class/leds/red/brightness` ✓ jalan (menyalakan LED charger) ·
+  `green`/`blue` ✗ tidak terdaftar, tulisannya gagal diam-diam ·
+  `red/device/{grpfreq,grppwm}` ✗ nol hasil di `leds-qpnp.c`, jadi **blink tidak jalan**.
+  `Light.cpp` memakai `std::ofstream` tanpa cek error sehingga HAL tetap melapor `SUCCESS`
+  dan framework mengira LED notifikasi berfungsi penuh. Dibiarkan apa adanya karena `red`
+  satu-satunya LED yang ada dan perilakunya tidak bisa dipastikan tanpa perangkat.
+- **`init.qcom.usb.rc`** menulis `/sys/module/dwc3/parameters/tx_fifo_resize_enable` 4×,
+  tapi `dwc3` nol hasil di kernel — A37 memakai `msm_hsusb`. Dibiarkan karena berkas itu
+  salinan CAF generik, bukan tulisan khusus device ini.
+
+### Patch ReSukiSU: bersih
+
+Keenam hook di `patches/kernel-resukisu-hooks.patch` diverifikasi terhadap sumber ReSukiSU
+asli. **Tidak ditemukan bug.** Tiga hal yang tampak mencurigakan ternyata benar:
+
+- `(int *)AT_FDCWD` untuk parameter `fd` — aman, `do_ksu_handle_execveat_sucompat()` tidak
+  pernah men-dereference `fd`
+- `0` (NULL) untuk `flags` — aman, `ksu_handle_execveat_ksud()` tidak memakainya; upstream
+  sendiri memanggil dengan `NULL`
+- `filename` berupa pointer kernel dari `getname()` — memang itu yang diharapkan;
+  `ksu_handle_execve` bertipe `const char *` (tanpa `__user`) dan bahkan `memcpy` ke buffer
+  itu untuk mengalihkan `su` ke `ksud`
+
+Signature keenamnya cocok, termasuk varian `ksu_handle_stat` yang benar (varian
+`struct filename **` hanya untuk kernel ≥ 6.1 dengan SUSFS), dan call site `fstat64`/
+`fstatat64` sudah berada di dalam guard `__ARCH_WANT_STAT64 || __ARCH_WANT_COMPAT_STAT64`
+yang tepat.
+
+Satu catatan pemeliharaan (bukan bug): patch mendeklarasikan `extern` manual di tiap `.c`
+alih-alih meng-include `sucompat.h`, jadi tidak ada pengecekan compiler antar-berkas. Kalau
+upstream mengubah signature, gagalnya baru ketahuan saat runtime.
+
+### Yang ternyata sehat
+
+`lowmemorykiller` (termasuk `minfree` lewat `module_param_array_named`), `process_reclaim`,
+`cpu_boost`, `msm_thermal/core_control`, `lpm_levels`, `phy_msm_usb`, `radio_iris fmsmd_set`,
+sysctl `sched_*` dan `extra_free_kbytes`, `/sys/class/sensors`, `lcd-backlight`,
+`button-backlight`, `CONFIG_F2FS_FS` (cocok fstab), zram + `CONFIG_SWAP`, `CONFIG_PSTORE_RAM`
+(cocok cmdline ramoops), `CONFIG_DM_REQ_CRYPT` (cocok `TARGET_HW_DISK_ENCRYPTION`),
+`CONFIG_SDCARD_FS`, `CONFIG_SECURITY_SELINUX`.
+
 ## Yang harus diterima apa adanya
 
 - **SELinux permissive** — dihardcode di device tree
@@ -557,10 +647,17 @@ Sudah diverifikasi:
   milik `build.sh`: semua bersih, `sepolicy_tmp/` benar-benar terhapus, tidak ada file
   `.orig`/`.rej`, dan pass kedua terdeteksi "sudah terpasang" (idempoten).
 
+Commit `cfd1d2e` (hasil [analisis kernel](#analisis-kernel)) diverifikasi dengan:
+
+- `m power.msm8916` sukses setelah `set_feature()` dan helper sysfs dibuang; satu-satunya
+  warning tersisa (`unused parameter 'module'` di `power_open`) sudah ada sebelumnya.
+- `m selinux_policy` sukses setelah `sepolicy/file.te` dihapus; policy dan
+  `power.msm8916.so` yang terbangun nol referensi `proc_touchpanel`/DT2W.
+
 Belum diverifikasi:
 
 - **Build ROM penuh belum dijalankan ulang setelah patch ini**, begitu juga boot di
-  perangkat. Yang diverifikasi baru tahap parse makefile dan sepolicy.
+  perangkat. Yang diverifikasi baru tahap parse makefile, sepolicy, dan modul terkait.
 - Fungsi per-perangkat keras setelah boot: WiFi, Bluetooth, kamera, GPS, panggilan/sinyal,
   audio, sensor, pemutaran video.
 - Efek nyata perbaikan `overlay-lineage` di Settings > Buttons — perlu HP.
