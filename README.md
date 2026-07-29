@@ -36,7 +36,7 @@ supaya `repo sync` kapan pun menghasilkan tree yang sama.
 
 | Komponen | Repo | Commit | Branch | Path |
 |---|---|---|---|---|
-| device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `70f2ce6729c4` | `rb` | `device/oppo/A37` |
+| device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `8528d38f107d` | `rb` | `device/oppo/A37` |
 | vendor | [`meghs-playground/rb-vendor_oppo_A37`](https://github.com/meghs-playground/rb-vendor_oppo_A37) | `6a644358bba6` | `lineage-17.1` | `vendor/oppo` |
 | kernel | [`meghs-playground/kernel_oppo_msm8939`](https://github.com/meghs-playground/kernel_oppo_msm8939) | `0efa2fea8099` | `0.0` | `kernel/oppo/msm8939` |
 | timekeep | [`LineageOS/android_hardware_sony_timekeep`](https://github.com/LineageOS/android_hardware_sony_timekeep) | `858c544d1ad1` | `lineage-17.1` | `hardware/sony/timekeep` |
@@ -62,7 +62,7 @@ Varian kernel [`kernel_oppo_msm8939_`](https://github.com/meghs-playground/kerne
 ### Device tree memakai fork sendiri
 
 Device tree menunjuk ke fork [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37),
-bukan repo hulu. Fork ini berisi delapan commit di atas `e03d984`:
+bukan repo hulu. Fork ini berisi sembilan commit di atas `e03d984`:
 
 | Commit | Isi | Sama dengan |
 |---|---|---|
@@ -74,6 +74,7 @@ bukan repo hulu. Fork ini berisi delapan commit di atas `e03d984`:
 | `22dab4b` | Arahkan blob `stats_algorithm` ke shim yang benar | — (hasil [audit ELF](#audit-dependency-elf-dan-simbol)) |
 | `75e71a4` | Implementasikan `powerHint` + `setInteractive` di power HAL | — (lihat [Power HAL](#power-hal)) |
 | `70f2ce6` | zram: berhenti meminta compressor yang tidak ada — swap jadi hidup | — (lihat [zram dan swap](#zram-dan-swap)) |
+| `8528d38` | Buang `latch_unsignaled` + 7 properti SF yang nol pembaca | — (lihat [Glitch wallpaper saat layar dinyalakan](#glitch-wallpaper-saat-layar-dinyalakan)) |
 
 Artinya **`patches/device-A37-*.patch` sudah tidak perlu diterapkan lagi** kalau memakai
 manifest ini — `build.sh` akan melaporkan ketiganya "sudah terpasang" dan lanjut tanpa
@@ -682,6 +683,64 @@ tidak untuk yang mengubah jumlah argumen:
 **Semua simbol ini terbukti tidak dipakai siapa pun di image**, jadi ini masalah laten, bukan
 bug aktif. Dicatat di sini supaya tidak dipakai ulang mentah-mentah untuk device lain.
 
+## Glitch wallpaper saat layar dinyalakan
+
+**Gejala:** setelah layar dimatikan lalu dinyalakan, wallpaper sesaat tampak tidak pas ke
+layar, lalu benar sendiri. Kadang-kadang saja, tidak setiap kali.
+
+**Hipotesis utama — `debug.sf.latch_unsignaled=1`** (dibuang di `8528d38`). Di
+`frameworks/native/services/surfaceflinger/BufferLayer.cpp:579`:
+
+```cpp
+bool BufferQueueLayer::fenceHasSignaled() const {
+    if (latchUnsignaledBuffers()) {
+        return true;        // ← cek acquire fence DILEWATI
+    }
+```
+
+Normalnya SurfaceFlinger menunggu *acquire fence* menyala — tanda GPU selesai menggambar ke
+buffer itu — sebelum menampilkannya. Dengan properti ini pengecekan itu dilewati, jadi SF
+boleh menampilkan buffer yang render-nya **belum selesai**. Cocok dengan artefak satu frame
+yang benar sendiri, dan cocok dengan sifatnya yang kadang-kadang (tergantung render sempat
+selesai atau tidak). Default AOSP memang `0`, jadi membuangnya = kembali ke perilaku benar.
+
+**`debug.sf.disable_backpressure=1` sengaja dipertahankan** meski juga tersangka
+(`SurfaceFlinger.cpp:363` → `mPropagateBackpressure=false`). Kalau dua-duanya dibuang
+sekaligus lalu glitch hilang, tidak akan ketahuan mana penyebabnya. Itu variabel berikutnya
+kalau perbaikan ini belum cukup.
+
+### Tujuh properti SF yang nol pembaca
+
+Disisir ke seluruh tree (`frameworks/`, `hardware/`, `system/`, `vendor/qcom/`), semuanya
+tidak dibaca apa pun dan ikut dibuang:
+
+`debug.enable.sglscale` · `debug.egl.hw` · `debug.sf.disable_hwc` ·
+`debug.sf.recomputecrop` · `debug.cpurend.vsync` · `debug.sf.gpu_comp_tiling` ·
+`debug.performance.tuning`
+
+`debug.sf.recomputecrop` layak disebut khusus: untuk bug soal "tidak pas ke layar" ia
+tampak seperti tersangka paling jelas, tapi Android 10 **tidak membacanya sama sekali**.
+
+Yang tetap dipertahankan karena terbukti dibaca: `debug.composition.type` dan
+`debug.mdpcomp.idletime` (oleh `hardware/qcom-caf/msm8916/display` — tree display yang
+benar-benar dibangun device ini, bukan salinan `msm8974`/`msm8994` yang juga memuat string
+itu), `debug.sf.hw` (`SurfaceFlinger.cpp`), dan `debug.hwui.use_buffer_age`
+(`frameworks/base/libs/hwui/Properties.h`).
+
+### Jangan uji properti begini lewat `adb shell stop`
+
+Nilai `debug.sf.latch_unsignaled` di-cache di variabel `static` seumur proses SF
+(`BufferLayer.cpp:580`), jadi `setprop` saja tidak berefek — SF harus dijalankan ulang.
+**Tapi jangan pakai `adb shell stop && adb shell start`.** Itu dicoba pada 29 Juli 2026 dan
+**menyebabkan bootloop**: masuk homescreen lalu kembali ke bootanimation berulang. `stop`
+menghentikan service `class main`/`late_start` tapi `start` tidak menjamin urutan
+dependensinya kembali benar, dan di perangkat ini banyak HAL warisan yang tertinggal
+setengah jalan.
+
+Pemulihannya `adb reboot` — tidak ada yang tertulis permanen, jadi tidak perlu wipe atau
+flash ulang. Cara yang benar untuk menguji: ubah di device tree, build inkremental (beberapa
+menit), lalu flash.
+
 ## zram dan swap
 
 **Device ini sebelumnya tidak punya swap sama sekali** — bukan swap yang lambat, tapi
@@ -883,6 +942,11 @@ Belum diverifikasi:
 - **swap zram benar-benar naik** ([`70f2ce6`](#zram-dan-swap)) — yang dibuktikan baru bahwa
   berkas init terpasang tidak lagi memuat `write ... comp_algorithm`. Wajib dicek di
   perangkat dengan `cat /proc/swaps`; sebelum ini isinya pasti kosong.
+- **apakah `8528d38` benar-benar menghilangkan glitch wallpaper**
+  ([lihat bagiannya](#glitch-wallpaper-saat-layar-dinyalakan)) — yang dibuktikan baru bahwa
+  delapan properti itu hilang dari `build.prop` dan lima yang dibaca tetap ada. Hipotesisnya
+  masuk akal secara mekanisme, tapi belum terbukti; kalau glitch masih ada, tersangka
+  berikutnya `debug.sf.disable_backpressure`.
 - **Efek nyata power HAL** ([`75e71a4`](#power-hal)) — yang diverifikasi baru bahwa kedua
   path tunable ada di `.so`, `power_hint`/`power_set_interactive` ada di tabel simbol,
   aturan sepolicy masuk policy terbangun, dan `boost_gov_sys`/`boostpulse_gov_sys` memang
