@@ -231,11 +231,18 @@ patch_device_tree() {
     local dt="$BUILD_DIR/device/oppo/$DEVICE" p name
     [[ -d "$dt" ]] || return 0
 
+    # -E: buang file yang jadi kosong setelah dipatch. Tanpa ini patch yang
+    # menghapus file (mis. sepolicy_tmp/ pada device-A37-fixes.patch) cuma
+    # menyisakan file kosong, bukan menghapusnya.
+    # --no-backup-if-mismatch: patch-patch ini saling menggeser nomor baris, jadi
+    # hunk sering mendarat dengan offset. Itu normal, tapi default GNU patch
+    # menaruh file .orig di device tree setiap kali itu terjadi.
+    local popts=(-p1 -E --no-backup-if-mismatch)
     shopt -s nullglob
     for p in "$SCRIPT_DIR"/patches/device-A37-*.patch; do
         name="$(basename "$p")"
-        if patch -p1 -d "$dt" --dry-run --silent < "$p" >/dev/null 2>&1; then
-            patch -p1 -d "$dt" --silent < "$p"
+        if patch "${popts[@]}" -d "$dt" --dry-run --silent < "$p" >/dev/null 2>&1; then
+            patch "${popts[@]}" -d "$dt" --silent < "$p"
             green "Patch device tree diterapkan: $name"
         elif patch -p1 -R -d "$dt" --dry-run --silent < "$p" >/dev/null 2>&1; then
             info "Patch device tree sudah terpasang: $name"

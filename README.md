@@ -20,8 +20,9 @@ untuk apa yang sudah dan belum diverifikasi.
 |---|---|
 | `A37.xml` | Local manifest — device tree, vendor, kernel, dependency, semuanya di-pin ke SHA |
 | `build.sh` | Script satu-jalan: cek host → init → sync → perbaiki LFS → patch → build |
-| `patches/device-A37-cryptfshw.patch` | Menambah `cryptfshw@1.0-service-qti.qsee` ke `PRODUCT_PACKAGES` |
-| `patches/device-A37-toolchain.patch` | Membuang path toolchain milik mesin pembuat device tree |
+| `patches/device-A37-cryptfshw.patch` | Menambah `cryptfshw@1.0-service-qti.qsee` ke `PRODUCT_PACKAGES` — **sudah ada di fork**, hanya perlu untuk tree hulu |
+| `patches/device-A37-toolchain.patch` | Membuang path toolchain milik mesin pembuat device tree — **sudah ada di fork** |
+| `patches/device-A37-fixes.patch` | Perbaikan hasil analisis device tree — **sudah ada di fork**, lihat [Analisis device tree](#analisis-device-tree) |
 | `patches/gcc-wrapper.py` | Versi python3 dari wrapper kernel — hanya perlu untuk kernel selain yang di-pin |
 | `build-kernel-resukisu.sh` | Bangun kernel + root ReSukiSU, keluar sebagai zip AnyKernel3 |
 | `patches/kernel-resukisu-hooks.patch` | Enam hook manual ReSukiSU + backport `READ_ONCE` untuk kernel 3.10 |
@@ -35,7 +36,7 @@ supaya `repo sync` kapan pun menghasilkan tree yang sama.
 
 | Komponen | Repo | Commit | Branch | Path |
 |---|---|---|---|---|
-| device | [`meghs-playground/rb_device_oppo_A37`](https://github.com/meghs-playground/rb_device_oppo_A37) | `e03d9844ea01` | `rb` | `device/oppo/A37` |
+| device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `a5c1eafd8f81` | `rb` | `device/oppo/A37` |
 | vendor | [`meghs-playground/rb-vendor_oppo_A37`](https://github.com/meghs-playground/rb-vendor_oppo_A37) | `6a644358bba6` | `lineage-17.1` | `vendor/oppo` |
 | kernel | [`meghs-playground/kernel_oppo_msm8939`](https://github.com/meghs-playground/kernel_oppo_msm8939) | `0efa2fea8099` | `0.0` | `kernel/oppo/msm8939` |
 | timekeep | [`LineageOS/android_hardware_sony_timekeep`](https://github.com/LineageOS/android_hardware_sony_timekeep) | `858c544d1ad1` | `lineage-17.1` | `hardware/sony/timekeep` |
@@ -57,6 +58,33 @@ Empat hal yang sering bikin salah pasang:
 
 Varian kernel [`kernel_oppo_msm8939_`](https://github.com/meghs-playground/kernel_oppo_msm8939_)
 (akhiran garis bawah) adalah versi ber-root KernelSU — pakai itu hanya kalau memang ingin root.
+
+### Device tree memakai fork sendiri
+
+Device tree menunjuk ke fork [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37),
+bukan repo hulu. Fork ini berisi tiga commit di atas `e03d984`:
+
+| Commit | Isi | Sama dengan |
+|---|---|---|
+| `01a59b5` | Buang path toolchain `/tmp/src/android/tc` milik pembuat tree | `patches/device-A37-toolchain.patch` |
+| `19131e6` | Bangun `cryptfshw@1.0-service-qti.qsee`, bukan cuma `-base` | `patches/device-A37-cryptfshw.patch` |
+| `a5c1eaf` | Perbaikan sisa kang a6000 + file yang lupa disambungkan | `patches/device-A37-fixes.patch` |
+
+Artinya **`patches/device-A37-*.patch` sudah tidak perlu diterapkan lagi** kalau memakai
+manifest ini — `build.sh` akan melaporkan ketiganya "sudah terpasang" dan lanjut tanpa
+menambal. Berkas patch tetap disimpan sebagai dokumentasi perubahan, dan supaya siapa pun
+yang masih memakai tree hulu `meghs-playground` bisa menerapkannya sendiri.
+
+Mau menarik update dari hulu nanti:
+
+```bash
+cd ~/los17/device/oppo/A37
+git remote add upstream https://github.com/meghs-playground/rb_device_oppo_A37
+git fetch upstream && git rebase upstream/rb    # commit kamu tetap di atas
+git push fork rb --force-with-lease
+```
+
+Lalu perbarui `revision` di `A37.xml` ke SHA yang baru.
 
 Ingin mengikuti perkembangan terbaru alih-alih commit yang di-pin? Ganti `revision` dengan
 nama branch pada atribut `upstream` masing-masing.
@@ -133,7 +161,7 @@ Variabel lingkungan: `BUILD_DIR`, `JOBS`, `CCACHE_SIZE` (default 50G), `LFS_ARCH
 | Sync | `repo sync -c --no-clone-bundle --no-tags --force-sync` |
 | LFS | deteksi `webview.apk` yang masih pointer 133 byte, lalu `git lfs pull` di project yang tepat |
 | Patch kernel | ganti `scripts/gcc-wrapper.py` dengan versi python3 **hanya** kalau kernel memakainya dan host tanpa python2 |
-| Patch device tree | terapkan semua `patches/device-A37-*.patch` secara idempoten |
+| Patch device tree | terapkan semua `patches/device-A37-*.patch` secara idempoten — dengan fork, ketiganya terdeteksi "sudah terpasang" |
 | Label | peringatan kalau `TARGET_UNOFFICIAL_BUILD_ID` terwarisi dari environment |
 | Build | `breakfast A37` lalu `mka bacon` (atau `mka recoveryimage`) |
 
@@ -181,19 +209,36 @@ git lfs install --local && git lfs pull
 cd ~/los17
 ```
 
-### 5. Terapkan patch device tree
+### 5. Patch device tree — tidak perlu lagi
+
+Manifest sudah menunjuk fork [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37)
+yang isinya sudah memuat ketiga patch. Cukup verifikasi bahwa yang tersync memang benar:
 
 ```bash
-patch -p1 -d device/oppo/A37 < /path/ke/a37-build/patches/device-A37-cryptfshw.patch
-patch -p1 -d device/oppo/A37 < /path/ke/a37-build/patches/device-A37-toolchain.patch
-```
+git -C device/oppo/A37 log --oneline -4
+# a5c1eaf A37: Fix leftovers from device kanging and unwired files
+# 19131e6 A37: Build the cryptfshw HAL service, not just its base
+# 01a59b5 A37: Drop hardcoded toolchain path from BoardConfig
+# e03d984 A37: try x2 to fix kernel compile      <- hulu
 
-Verifikasi:
-
-```bash
-grep -c 'cryptfshw@1.0-service-qti.qsee' device/oppo/A37/device.mk   # → 1
+grep -c 'cryptfshw@1.0-service-qti.qsee' device/oppo/A37/device.mk        # → 1
 grep -c '^KERNEL_TOOLCHAIN := /tmp'      device/oppo/A37/BoardConfig.mk   # → 0
+grep -c 'overlay-lineage'                device/oppo/A37/device.mk        # → 2
 ```
+
+Kalau kamu justru memakai tree hulu `meghs-playground`, barulah patch-nya diterapkan
+manual:
+
+```bash
+patch -p1 -E --no-backup-if-mismatch -d device/oppo/A37 < /path/ke/a37-build/patches/device-A37-cryptfshw.patch
+patch -p1 -E --no-backup-if-mismatch -d device/oppo/A37 < /path/ke/a37-build/patches/device-A37-toolchain.patch
+patch -p1 -E --no-backup-if-mismatch -d device/oppo/A37 < /path/ke/a37-build/patches/device-A37-fixes.patch
+```
+
+`-E` dibutuhkan karena `device-A37-fixes.patch` menghapus `sepolicy_tmp/`; tanpa
+itu yang tersisa cuma file kosong. `--no-backup-if-mismatch` mencegah file `.orig`
+berserakan — ketiga patch saling menggeser nomor baris sehingga hunk sering
+mendarat dengan offset (normal, bukan error).
 
 ### 6. Kernel: hanya kalau memakai kernel lain
 
@@ -248,7 +293,7 @@ lalu `mka bacon` ulang.
 |---|---|---|
 | `--git-lfs` saat init | otomatis | harus diingat sendiri |
 | Objek LFS yang masih pointer | dideteksi & ditarik | cek & `git lfs pull` sendiri |
-| Patch device tree | idempoten, otomatis | `patch -p1` dua berkas |
+| Patch device tree | idempoten, otomatis | tidak perlu — fork sudah memuatnya |
 | Wrapper kernel python3 | dipasang bila perlu saja | salin manual bila perlu |
 | Label zip | `BUILD_LABEL=none` | `unset TARGET_UNOFFICIAL_BUILD_ID` |
 | ccache | diaktifkan otomatis | `export USE_CCACHE=1 CCACHE_EXEC=$(which ccache)` |
@@ -301,7 +346,8 @@ Zip aman untuk semua varian:
 
 | Gejala | Sebab & solusi |
 |---|---|
-| `ccache: error: execute_noreturn of /tmp/src/android/tc/bin/aarch64-linux-android-gcc` | `KERNEL_TOOLCHAIN` hardcoded di device tree — terapkan `patches/device-A37-toolchain.patch` |
+| `ccache: error: execute_noreturn of /tmp/src/android/tc/bin/aarch64-linux-android-gcc` | `KERNEL_TOOLCHAIN` hardcoded di device tree — fork sudah memperbaikinya; kalau memakai tree hulu, terapkan `patches/device-A37-toolchain.patch` |
+| `error: hooks is different in .repo/projects/device/oppo/A37.git vs .repo/project-objects/rigaz29/...` | Muncul sekali saja saat tree lama beralih dari repo hulu ke fork — nama project di manifest berubah, jadi `repo` membuat direktori project-objects baru. Sync tetap selesai (`repo sync has finished successfully`) dan `.git/hooks` ikut diarahkan ulang. Tidak perlu tindakan; `repo init` baru dari nol tidak akan kena |
 | `failed opening zip: Invalid file` pada target `webview` | Objek Git LFS belum ditarik — lihat [Prebuilt webview dan Git LFS](#prebuilt-webview-dan-git-lfs) |
 | `fatal: couldn't find remote ref refs/heads/<sha>` | SHA di manifest tidak lengkap; harus 40 karakter |
 | `repo sync` gagal pada `external/stlport` | Repo itu tidak punya branch `lineage-17.1`; `A37.xml` sudah mem-pin ke `lineage-15.1` |
@@ -413,11 +459,62 @@ mengubahnya berarti build ulang tahap packaging, bukan sekadar `mv`.
 
 ---
 
+## Analisis device tree
+
+Device tree `meghs-playground/rb_device_oppo_A37 @ e03d984` dibaca menyeluruh
+(makefile, manifest HIDL, init rc, sepolicy, overlay, sumber HAL). Temuannya di
+bawah ini. Yang bisa diperbaiki tanpa perangkat sudah masuk
+`patches/device-A37-fixes.patch`; sisanya butuh HP di tangan.
+
+Akar masalah yang berulang: tree ini punya jejak **kang dari device lain**
+(Lenovo a6000) dan **file yang ditulis tapi lupa disambungkan**.
+
+### Sudah diperbaiki
+
+| # | Temuan | Dampak |
+|---|---|---|
+| 1 | `Android.mk` bikin symlink `vendor/firmware/wlan/prima/WCNSS_qcom_cfg.ini` → `/data/vendor/wifi/...`, sementara `device.mk` meng-install file asli ke path yang **persis sama** | Dua aturan make untuk satu target — inilah yang memaksa `BUILD_BROKEN_DUP_RULES := true`. Symlink-nya juga selalu menggantung: tidak ada init script yang menyalin ini ke `/data/vendor/wifi`. Kalau aturan symlink yang menang, driver prima gagal baca config → Wi-Fi mati |
+| 2 | `overlay-lineage/` tidak pernah masuk `DEVICE_PACKAGE_OVERLAYS` | Seluruh isinya mati: `config_deviceHardwareKeys=83`, `config_deviceHardwareWakeKeys=64`, `config_trustLegacyEncryption`, `config_buttonBrightnessSettingDefault`. Settings > Buttons tidak cocok dengan tombol fisik. Nilai 83 persis cocok dengan `keylayout/ft5x06_ts.kl` (HOME/BACK/APP_SWITCH) + `gpio-keys.kl` (volume) — overlay ini memang milik A37, cuma lupa disambung |
+| 3 | `sepolicy/file_contexts` melabeli `android.hardware.light@2.0-service.**a6000**` | Biner yang benar-benar dibangun adalah `...-service.oppo_msm8916`, jadi tidak pernah dapat label dan init tidak bisa transisi ke domain `hal_light_default`. Prasyarat kalau mau lepas dari permissive |
+| 4 | `configs/sensors/_hals.conf` isinya `sensors.a6000.so` | Device ini membangun `sensors.msm8916` (`sensors/Android.mk`) |
+| 5 | `sepolicy_tmp/` mendeklarasikan `firmware_file`/`persist_file` | Tidak pernah masuk `BOARD_SEPOLICY_DIRS`, dan kedua tipe itu sudah ada di `device/qcom/sepolicy-legacy/common/file.te`. Kalau disambungkan, sepolicy justru gagal kompilasi karena deklarasi kembar. Dihapus |
+| 6 | `dalvik.vm.*` di `device.mk` (128m/256m/512k) beda dari `init/init_msm8916.cpp` (256m/512m/2m untuk 2GB) | `vendor_load_properties()` jalan **setelah** `/system/build.prop` dibaca (`property_service.cpp` baris 908 vs 935) dan `dalvik.vm.*` bukan properti `ro.`, jadi nilai vendor_init menang — isi build.prop cuma pajangan yang menyesatkan. Disamakan |
+| 7 | Properti kembar: `persist.hwc.mdpcomp.enable`, `persist.hwc.ptor.enable`, `persist.data.qmi.adb_logmask`, `persist.radio.apm_sim_not_pwdn`, `ro.telephony.call_ring.multiple` | Ditulis dua kali di blok berbeda |
+| 8 | `PRODUCT_PACKAGES` memuat `Camera2` **dan** `SnapdragonCamera` **dan** `Snap` | `Snap` pakai `LOCAL_OVERRIDES_PACKAGES := Camera2`, jadi Camera2 dikompilasi lalu dibuang dari image (buang waktu). `SnapdragonCamera` bukan nama modul yang ada di tree ini |
+| 9 | `AUDIO_FEATURE_ENABLED_SND_MONITOR` ditulis dua kali; `SELINUX_IGNORE_NEVERALLOWS` nyasar di blok GPS | Kosmetik, tapi menyesatkan saat membaca |
+| 10 | `TARGET_OTA_ASSERT_DEVICE` tidak memuat `A37` maupun `A37m` | `PRODUCT_DEVICE` sendiri bernilai `A37`, dan README device menyebut varian A37m |
+
+### Belum diperbaiki — butuh perangkat untuk diuji
+
+- **SELinux permissive.** Temuan #3 dan #5 adalah dua langkah ke arah enforcing,
+  tapi melepas `androidboot.selinux=permissive` tanpa HP untuk membaca `avc: denied`
+  hampir pasti berujung bootloop. Urutan yang benar: boot permissive → kumpulkan
+  denial via `dmesg`/`logcat` → tulis aturan → baru enforcing.
+- **`libmm-omxcore.so` punya dua aturan make.** Blob prebuilt dari
+  `vendor/oppo/A37/A37-vendor.mk` baris 242 bertabrakan dengan build dari sumber
+  di `hardware/qcom-caf/msm8916/media/mm-core`. Saat ini prebuilt yang menang.
+  **Inilah satu-satunya alasan `BUILD_BROKEN_DUP_RULES := true` masih dibutuhkan**
+  setelah temuan #1 diperbaiki. Memilih salah satunya mengubah stack media, jadi
+  harus diuji pemutaran video dulu.
+- **Tidak ada gatekeeper HAL.** Tidak ada di `manifest.xml`, tidak ada di
+  `PRODUCT_PACKAGES`, dan tidak ada blob `gatekeeper.*` di vendor tree. PIN/pola
+  tetap jalan karena `gatekeeperd` jatuh ke implementasi software
+  (`system/core/gatekeeperd/gatekeeperd.cpp:68`), tapi kredensial tidak terikat
+  ke hardware. Menambah HAL tanpa blob pendukung justru berisiko merusak
+  lockscreen, jadi jangan disentuh tanpa perangkat.
+- **`ro.product.first_api_level=19`** padahal device rilis dengan Android 5.1
+  (API 22), sejalan dengan `product_launched_with_k.mk` yang di-inherit. Menaikkan
+  ke 22 memperketat syarat runtime — perlu diuji, bukan diubah buta.
+- **`manifest.xml` mendeklarasikan `android.hardware.drm@1.0` instance `clearkey`**
+  padahal yang dibangun `drm@1.2-service.clearkey`. `mediadrmserver` akan mencatat
+  error saat mencari instance itu; tidak fatal.
+
 ## Yang harus diterima apa adanya
 
 - **SELinux permissive** — dihardcode di device tree
   (`BOARD_KERNEL_CMDLINE += androidboot.selinux=permissive`, `SELINUX_IGNORE_NEVERALLOWS := true`).
   Play Integrity/SafetyNet gagal; sebagian aplikasi bank/dompet digital menolak jalan.
+  Lihat [Analisis device tree](#analisis-device-tree) untuk langkah menuju enforcing.
 - **`VENDOR_SECURITY_PATCH := 2016-01-01`** — blob dari ColorOS 5.1.1. Patch level Android
   boleh baru, blob vendornya tidak.
 - **Kamera HAL1 legacy + shim** (`TARGET_HAS_LEGACY_CAMERA_HAL1`, `libshim_camera`).
@@ -445,10 +542,28 @@ Sudah diverifikasi:
   menggagalkan build dan object tetap ada; `GCC_WRAPPER_FATAL_WARNINGS=1` mengembalikan
   perilaku lama; error kompilasi asli tetap exit 1.
 
+`patches/device-A37-fixes.patch` diverifikasi terhadap `~/los17` yang sudah ter-sync
+(`lunch lineage_A37-userdebug`):
+
+- `m nothing` sukses — seluruh graf makefile terbaca. Peringatan aturan kembar untuk
+  `WCNSS_qcom_cfg.ini` **hilang**; yang tersisa hanya `libmm-omxcore.so` (masalah lama,
+  tidak disentuh patch ini).
+- `m selinux_policy` sukses; label baru muncul di
+  `out/target/product/A37/system/vendor/etc/selinux/vendor_file_contexts` dan entri
+  `.a6000` sudah tidak ada. Artinya `checkfc` menerima `file_contexts` yang baru.
+- soong mem-glob `device/oppo/A37/overlay-lineage/**/*` setelah overlay disambungkan —
+  bukti overlay itu kini benar-benar ikut dibangun.
+- Ketiga patch diterapkan berurutan ke tree pristine lewat fungsi `patch_device_tree()`
+  milik `build.sh`: semua bersih, `sepolicy_tmp/` benar-benar terhapus, tidak ada file
+  `.orig`/`.rej`, dan pass kedua terdeteksi "sudah terpasang" (idempoten).
+
 Belum diverifikasi:
 
+- **Build ROM penuh belum dijalankan ulang setelah patch ini**, begitu juga boot di
+  perangkat. Yang diverifikasi baru tahap parse makefile dan sepolicy.
 - Fungsi per-perangkat keras setelah boot: WiFi, Bluetooth, kamera, GPS, panggilan/sinyal,
   audio, sensor, pemutaran video.
+- Efek nyata perbaikan `overlay-lineage` di Settings > Buttons — perlu HP.
 - Masih ada **43 berkas** yang berbeda dari ROM 17.1 pembanding, antara lain
   `libshims_flp.so`, `libshims_get_process_name.so`, dan `libantradio.so`. Sebagian memang
   wajar berbeda antar-build (`bin/healthd`, `etc/firmware/modem.b*`), sebagian bisa jadi

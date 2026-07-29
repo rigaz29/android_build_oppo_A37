@@ -18,12 +18,19 @@
 <manifest>
   <remote name="gh" fetch="https://github.com/" />
 
-  <!-- Device tree.
+  <!-- Device tree. Fork dari meghs-playground/rb_device_oppo_A37.
        Dipilih karena set komponennya paling dekat dengan ROM 17.1 yang terbukti
        boot: punya lights/ sendiri (bukan meminjam light HAL Lenovo a6000),
-       wcnss_oppo/, service livedisplay, dan dependency timekeep. -->
-  <project name="meghs-playground/rb_device_oppo_A37" path="device/oppo/A37"
-           remote="gh" revision="e03d9844ea01bc982379ed308664458193b32b12" upstream="rb" />
+       wcnss_oppo/, service livedisplay, dan dependency timekeep.
+
+       Fork ini sudah memuat tiga commit di atas e03d984 (hulu):
+         01a59b5  buang path toolchain /tmp/src/android/tc milik pembuat tree
+         19131e6  bangun cryptfshw@1.0-service-qti.qsee, bukan cuma -base
+         a5c1eaf  perbaikan sisa kang a6000 + file yang lupa disambungkan
+       Isinya sama persis dengan patches/device-A37-*.patch, jadi build.sh akan
+       melaporkan ketiganya "sudah terpasang" dan tidak menambal apa-apa lagi. -->
+  <project name="rigaz29/rb_device_oppo_A37" path="device/oppo/A37"
+           remote="gh" revision="a5c1eafd8f81ca2c1c819d19124381e61e1406fe" upstream="rb" />
 
   <!-- Vendor blobs. Root repo berisi folder A37/, jadi path-nya vendor/oppo
        (BUKAN vendor/oppo/A37). A37-vendor.mk merujuk 328 file dan semuanya ada.
