@@ -36,7 +36,7 @@ supaya `repo sync` kapan pun menghasilkan tree yang sama.
 
 | Komponen | Repo | Commit | Branch | Path |
 |---|---|---|---|---|
-| device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `22dab4ba29a4` | `rb` | `device/oppo/A37` |
+| device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `75e71a4b20ec` | `rb` | `device/oppo/A37` |
 | vendor | [`meghs-playground/rb-vendor_oppo_A37`](https://github.com/meghs-playground/rb-vendor_oppo_A37) | `6a644358bba6` | `lineage-17.1` | `vendor/oppo` |
 | kernel | [`meghs-playground/kernel_oppo_msm8939`](https://github.com/meghs-playground/kernel_oppo_msm8939) | `0efa2fea8099` | `0.0` | `kernel/oppo/msm8939` |
 | timekeep | [`LineageOS/android_hardware_sony_timekeep`](https://github.com/LineageOS/android_hardware_sony_timekeep) | `858c544d1ad1` | `lineage-17.1` | `hardware/sony/timekeep` |
@@ -62,7 +62,7 @@ Varian kernel [`kernel_oppo_msm8939_`](https://github.com/meghs-playground/kerne
 ### Device tree memakai fork sendiri
 
 Device tree menunjuk ke fork [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37),
-bukan repo hulu. Fork ini berisi enam commit di atas `e03d984`:
+bukan repo hulu. Fork ini berisi tujuh commit di atas `e03d984`:
 
 | Commit | Isi | Sama dengan |
 |---|---|---|
@@ -72,6 +72,7 @@ bukan repo hulu. Fork ini berisi enam commit di atas `e03d984`:
 | `cfd1d2e` | Buang tuning/fitur yang tidak diimplementasikan kernel | — (hasil [analisis kernel](#analisis-kernel)) |
 | `cb55417` | Pasang `libwpa_client` supaya `imsdatadaemon` bisa jalan | — (hasil [audit ELF](#audit-dependency-elf-dan-simbol)) |
 | `22dab4b` | Arahkan blob `stats_algorithm` ke shim yang benar | — (hasil [audit ELF](#audit-dependency-elf-dan-simbol)) |
+| `75e71a4` | Implementasikan `powerHint` + `setInteractive` di power HAL | — (lihat [Power HAL](#power-hal)) |
 
 Artinya **`patches/device-A37-*.patch` sudah tidak perlu diterapkan lagi** kalau memakai
 manifest ini — `build.sh` akan melaporkan ketiganya "sudah terpasang" dan lanjut tanpa
@@ -680,6 +681,76 @@ tidak untuk yang mengubah jumlah argumen:
 **Semua simbol ini terbukti tidak dipakai siapa pun di image**, jadi ini masalah laten, bukan
 bug aktif. Dicatat di sini supaya tidak dipakai ulang mentah-mentah untuk device lain.
 
+## Power HAL
+
+`power.msm8916` semula hanya mengisi `.init`, dan `Power.cpp` melakukan null-check di
+setiap callback — jadi setiap hint yang dikirim framework diterima lalu dibuang diam-diam.
+
+**Yang hilang lebih sempit dari kelihatannya.** Responsivitas sentuhan tidak pernah
+bergantung pada HAL ini: `CONFIG_CPU_BOOST=y` dan `drivers/cpufreq/cpu-boost.c` memanggil
+`input_register_handler()`, jadi touch boost berjalan **di dalam kernel**. `init.qcom.power.rc`
+juga sudah menyetel governor `interactive` (`hispeed_freq`, `go_hispeed_load`,
+`above_hispeed_delay`, `boostpulse_duration=60000`) dan `cpu_boost` (`input_boost_ms=40`,
+`input_boost_freq="0:800000 1:1094400"`). Yang benar-benar hilang cuma **boost saat
+membuka aplikasi** dan **melepas boost saat layar mati**.
+
+### Yang diimplementasikan (`75e71a4`)
+
+Memakai tunables **global** governor interactive — path yang sama dengan yang sudah dipakai
+`init.qcom.power.rc`:
+
+| Hint | Aksi | Pengirim |
+|---|---|---|
+| `POWER_HINT_LAUNCH` | tulis `boost` (1 saat mulai, 0 saat selesai) | `RootActivityContainer.java:2294` |
+| `POWER_HINT_INTERACTION` | tulis `boostpulse` (60 ms) | `DisplayRotation.java`, `SurfaceAnimationRunner.java` |
+| `setInteractive(false)` | tulis `boost` = 0 | `PowerManagerService` saat layar mati |
+
+`LAUNCH` sengaja memakai `boost` (sustained) dan bukan `boostpulse`, karena framework
+mengirim 1 di awal dan 0 di akhir — jadi boost-nya membungkus seluruh durasi peluncuran.
+Untuk sentuhan, `INTERACTION` memang berlebihan karena `cpu_boost` sudah menanganinya di
+kernel, tapi tidak berbahaya: efeknya hanya memperpanjang `boostpulse_endtime`.
+
+### Dua hal yang sengaja TIDAK dipakai
+
+- **Parameter `cpu_boost`.** `boost_ms` cuma `module_param` biasa tanpa callback, jadi
+  menulisnya hanya mengubah durasi yang dipakai saat event sync cpufreq — **bukan pemicu
+  boost on-demand**. Memakainya untuk hint `LAUNCH` akan jadi tulisan sia-sia lagi.
+- **`POWER_HINT_LOW_POWER`.** Membatasi frekuensi berarti mengubah `scaling_max_freq` lalu
+  memulihkannya, dan itu perlu diuji di perangkat. Battery saver tetap bekerja di level
+  framework.
+
+### Jebakan untuk siapa pun yang mengembangkannya
+
+**Jangan men-dereference argumen `data`.** `Power.cpp` hanya mengirim pointer kalau nilainya
+bukan nol, dan `NULL` kalau nol:
+
+```cpp
+if (data) mModule->powerHint(mModule, hint, &param);
+else      mModule->powerHint(mModule, hint, NULL);
+```
+
+Jadi keberadaan pointer itu sendiri yang menjadi flag. `INTERACTION` selalu dikirim dengan
+`data=0`, sehingga pointernya **selalu** NULL.
+
+### sepolicy
+
+`hal_power_default` sudah punya akses ke `sysfs`, tapi `/sys/devices/system/cpu` dilabeli
+`sysfs_devices_system_cpu` (`system/sepolicy/private/genfs_contexts:108`) yang tidak
+tercakup aturan itu. Sudah ditambahkan. Tidak berpengaruh selama device permissive, tapi
+wajib begitu tidak lagi.
+
+### Yang masih terputus
+
+`ro.vendor.extension_library=libqti-perfd-client.so` diset di `device.mk`, tapi **tidak ada
+satu biner pun di image yang membaca properti itu** — string tersebut hanya muncul di
+`build.prop` dan `file_contexts`. Properti itu normalnya dibaca power HAL QTI
+(`hardware/qcom/power`) untuk `dlopen` dan mendapat `perf_lock_acq`; repo tersebut tidak ada
+di tree ini. Padahal sisa infrastrukturnya lengkap: `/vendor/etc/perf/perfboostsconfig.xml`
+ada, `vendor.qti.hardware.perf@1.0-service` jalan dengan dependency lengkap, dan
+`libqti-perfd-client.so` terpasang (klien nyatanya cuma `libmmcamera_hdr_gb_lib.so`, jadi
+kamera memang memakai perf-lock). Menyambungkan jalur perfd adalah pekerjaan terpisah yang
+butuh perangkat untuk diuji.
+
 ## Yang harus diterima apa adanya
 
 - **SELinux permissive** — dihardcode di device tree
@@ -748,6 +819,11 @@ Belum diverifikasi:
 - **Build ROM penuh belum dijalankan ulang setelah patch ini**, begitu juga boot di
   perangkat. Yang diverifikasi baru tahap parse makefile, sepolicy, dan modul terkait.
 - **VoLTE benar-benar bekerja** — yang dibuktikan baru daemonnya tidak lagi gagal `dlopen`.
+- **Efek nyata power HAL** ([`75e71a4`](#power-hal)) — yang diverifikasi baru bahwa kedua
+  path tunable ada di `.so`, `power_hint`/`power_set_interactive` ada di tabel simbol,
+  aturan sepolicy masuk policy terbangun, dan `boost_gov_sys`/`boostpulse_gov_sys` memang
+  ada di `interactive_attr_group_gov_sys` kernel. Dampaknya ke kecepatan buka aplikasi
+  belum diukur di perangkat.
 - **Kamera** — perbaikan shim menghilangkan ketergantungan pada urutan pemuatan, tapi
   fungsinya tetap perlu diuji di perangkat.
 - Fungsi per-perangkat keras setelah boot: WiFi, Bluetooth, kamera, GPS, panggilan/sinyal,
