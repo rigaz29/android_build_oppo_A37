@@ -225,41 +225,6 @@ patch_kernel_python() {
 }
 
 # ---------------------------------------------------------------------------
-# 6. Patch device tree
-# ---------------------------------------------------------------------------
-patch_device_tree() {
-    local dt="$BUILD_DIR/device/oppo/$DEVICE" p name
-    [[ -d "$dt" ]] || return 0
-
-    # repo sync --force-sync TIDAK membuang perubahan lokal dari run
-    # sebelumnya (patch yang sudah diterapkan tetap ada di working tree).
-    # Reset ke commit bersih supaya patch selalu diterapkan dari nol.
-    git -C "$dt" checkout -- . 2>/dev/null
-    git -C "$dt" clean -fd 2>/dev/null
-
-    # -E: buang file yang jadi kosong setelah dipatch. Tanpa ini patch yang
-    # menghapus file (mis. sepolicy_tmp/ pada device-A37-fixes.patch) cuma
-    # menyisakan file kosong, bukan menghapusnya.
-    # --no-backup-if-mismatch: patch-patch ini saling menggeser nomor baris, jadi
-    # hunk sering mendarat dengan offset. Itu normal, tapi default GNU patch
-    # menaruh file .orig di device tree setiap kali itu terjadi.
-    local popts=(-p1 -E --no-backup-if-mismatch)
-    shopt -s nullglob
-    for p in "$SCRIPT_DIR"/patches/device-A37-*.patch; do
-        name="$(basename "$p")"
-        if patch "${popts[@]}" -d "$dt" --dry-run --silent < "$p" >/dev/null 2>&1; then
-            patch "${popts[@]}" -d "$dt" --silent < "$p"
-            green "Patch device tree diterapkan: $name"
-        elif patch -p1 -R -d "$dt" --dry-run --silent < "$p" >/dev/null 2>&1; then
-            info "Patch device tree sudah terpasang: $name"
-        else
-            red "PERINGATAN: $name tidak cocok dengan device tree ini — dilewati"
-        fi
-    done
-    shopt -u nullglob
-}
-
-# ---------------------------------------------------------------------------
 # 7. Build
 # ---------------------------------------------------------------------------
 build_rom() {
@@ -338,7 +303,6 @@ main() {
     fi
     fix_lfs_pointers
     patch_kernel_python
-    patch_device_tree
     if [[ "$DO_BUILD" == "1" ]]; then
         build_rom
     else
