@@ -35,8 +35,8 @@
          8528d38  buang latch_unsignaled + 7 properti SF yang nol pembaca
          2e0e8b7  double-tap-to-wake lewat driver gesture Synaptics OPPO
          2e0283e  tambah mapping tombol kapasitif di synaptics-s3203.kl
-       Tiga yang pertama isinya sama persis dengan patches/device-A37-*.patch,
-       jadi build.sh melaporkannya "sudah terpasang" dan tidak menambal lagi. -->
+       Semua perbaikan dulu diterapkan lewat patches/device-A37-*.patch;
+       sekarang sudah menyatu di fork sehingga patch tidak diperlukan lagi. -->
   <project name="rigaz29/rb_device_oppo_A37" path="device/oppo/A37"
            remote="gh" revision="2e0283eb7386deb736fd9c0d5f9574c83d71f8af" upstream="rb" />
 
