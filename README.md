@@ -536,7 +536,7 @@ terdaftar.
 |---|---|
 | `init.target.rc` tuning zswap (4 baris) | `CONFIG_ZSWAP` butuh `depends on FRONTSWAP && CRYPTO=y`; `CONFIG_FRONTSWAP` mati → kconfig membuang ZSWAP dari `.config`, `/sys/module/zswap/` tidak pernah ada. Param `zpool` bahkan tidak ada di versi zswap ini |
 | `init.target.rc` tuning KSM (3 baris) | `# CONFIG_KSM is not set` |
-| Power HAL double-tap-to-wake | `doubletap2wake` dan `android_touch` **nol hasil** di seluruh pohon kernel. Mati ganda: overlay juga tidak menyetel `config_supportsDoubleTapWake`, jadi framework tidak pernah memanggil `setFeature` |
+| Power HAL double-tap-to-wake | Menulis ke `/sys/android_touch/doubletap2wake` — node itu tidak ada; `doubletap2wake` dan `android_touch` nol hasil di seluruh pohon kernel. Overlay juga tidak menyetel `config_supportsDoubleTapWake`, jadi `setFeature` tidak pernah dipanggil. **Kesimpulan bahwa "kernel tidak punya DT2W" ternyata SALAH** — lihat [DT2W sebenarnya didukung](#dt2w-sebenarnya-didukung-penuh-oleh-kernel) |
 | sepolicy `proc_touchpanel` + label `/sys/android_touch` | Ikut dibuang bersama DT2W; tidak ada aturan allow yang memakainya |
 | `TARGET_EXFAT_DRIVER := sdfat` | Variabel **tidak dibaca apa pun** di LineageOS 17.1 — satu-satunya kemunculan di seluruh tree adalah baris itu sendiri |
 
@@ -682,6 +682,54 @@ tidak untuk yang mengubah jumlah argumen:
 
 **Semua simbol ini terbukti tidak dipakai siapa pun di image**, jadi ini masalah laten, bukan
 bug aktif. Dicatat di sini supaya tidak dipakai ulang mentah-mentah untuk device lain.
+
+## DT2W sebenarnya didukung penuh oleh kernel
+
+**Koreksi atas commit `cfd1d2e`.** Commit itu membuang dukungan double-tap-to-wake dengan
+alasan "kernel ini tidak punya dukungan DT2W sama sekali". Itu **salah**. Pencariannya
+memakai `doubletap2wake` dan `android_touch` — konvensi penamaan flar2/franco — dan dapat
+nol hasil. OPPO mengimplementasikannya dengan penamaan yang sama sekali berbeda. Tidak
+adanya kosakata satu proyek bukan bukti tidak adanya fiturnya.
+
+**Sisi kernel sudah 100% selesai dan tidak terpakai.** Driver
+`synaptics_oppo/synaptics_oppo_driver_3203.c`, `CONFIG_TOUCHSCREEN_SYNAPTICS_OPPO=y`,
+`#define SUPPORT_GESTURE` tanpa syarat di baris 76:
+
+| Bagian | Kondisi |
+|---|---|
+| Knob | `/proc/touchpanel/double_tap_enable`, mode **0666** — shell bisa menulis tanpa root |
+| Deteksi | Di **firmware controller** (`DTAP_DETECT_S3203`), bukan polling software |
+| Event | `input_report_key(KEY_F4)` — KEY_F4 = 62, device `synaptics-s3203` (event0) |
+| Wake IRQ | `synaptics_i2c_suspend()` → `enable_irq_wake()` saat `gesture_enable==1` |
+
+Diuji di perangkat (30 Juli 2026) dengan `echo 1 > /proc/touchpanel/double_tap_enable` lalu
+`getevent -l`, layar dimatikan: **double-tap konsisten memunculkan `KEY_F4`**; lingkaran
+tidak ada respons; swipe 2 jari intermiten. Tidak ada register seleksi per-gesture —
+`synaptics_enable_interrupt_for_gesture()` hanya menyetel report mode 4 dan mask interrupt
+`0x3f`; `F51_CUSTOM_CTRL00` yang tampak seperti kandidat ternyata glove mode.
+
+**Rencana implementasi sudah siap tapi belum diterapkan** (5 berkas device tree, tanpa fork
+kernel). Detail lengkapnya tersimpan di memory proyek. Dua hal yang wajib diingat saat
+mengerjakannya:
+
+- `/proc` harus dilabeli lewat **`genfscon`**, bukan `file_contexts`. Sepolicy kangan yang
+  lama punya nama tipe benar (`proc_touchpanel`) tapi melabeli path `/sys/android_touch/...`
+  di `file_contexts` — path salah dan mekanisme salah.
+- `def_double_tap_to_wake` bernilai **`true`** di
+  `frameworks/base/packages/SettingsProvider/res/values/defaults.xml:182`. Tanpa override,
+  DT2W langsung nyala sendiri dan pengguna kena drain baterai tanpa memilih. Harus
+  dioverride ke `false` di overlay `SettingsProvider` (device tree sudah punya berkasnya).
+
+Soal baterai: suspend normal menulis `F01_RMI_CTRL00 = 0x01` (controller → sleep); dengan
+DT2W aktif driver `return 0` lebih awal sehingga baris itu tidak jalan. **Tidak ada regulator
+yang ditahan menyala di kedua jalur**, jadi selisihnya murni sleep vs scan-gesture — bentuk
+DT2W termurah. Bisa dimatikan dari Settings kapan saja, efeknya langsung di suspend
+berikutnya, tanpa reflash.
+
+Catatan sampingan: `keylayout/ft5x06_ts.kl` **mati** — `CONFIG_TOUCHSCREEN_FT5X06 is not
+set`, jadi tidak akan pernah ada input device bernama itu. Yang nyata `synaptics-s3203`
+(gesture) dan `synaptics-s3203-kpd` (tombol kapasitif); tombolnya berfungsi lewat fallback
+`Generic.kl`. Dibiarkan — berfungsi, dan mengubahnya berisiko tanpa alasan.
 
 ## Glitch wallpaper saat layar dinyalakan — SELESAI
 
