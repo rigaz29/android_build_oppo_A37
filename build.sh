@@ -231,6 +231,12 @@ patch_device_tree() {
     local dt="$BUILD_DIR/device/oppo/$DEVICE" p name
     [[ -d "$dt" ]] || return 0
 
+    # repo sync --force-sync TIDAK membuang perubahan lokal dari run
+    # sebelumnya (patch yang sudah diterapkan tetap ada di working tree).
+    # Reset ke commit bersih supaya patch selalu diterapkan dari nol.
+    git -C "$dt" checkout -- . 2>/dev/null
+    git -C "$dt" clean -fd 2>/dev/null
+
     # -E: buang file yang jadi kosong setelah dipatch. Tanpa ini patch yang
     # menghapus file (mis. sepolicy_tmp/ pada device-A37-fixes.patch) cuma
     # menyisakan file kosong, bukan menghapusnya.
