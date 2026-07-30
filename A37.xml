@@ -47,16 +47,14 @@
   <project name="meghs-playground/rb-vendor_oppo_A37" path="vendor/oppo"
            remote="gh" revision="6a644358bba6a1545ac9fe2070e67a5f47c24fb2" upstream="lineage-17.1" />
 
-  <!-- Kernel 3.10.108. Fork ini sudah membuang scripts/gcc-wrapper.py
-       (CC = $(CROSS_COMPILE)gcc), jadi tidak butuh python2 sama sekali.
-       Varian kernel_oppo_msm8939_ (akhiran garis bawah) adalah versi ber-root
-       KernelSU — pakai itu hanya kalau memang menginginkan root.
-
-       CATATAN clone-depth: kalau branch 0.0 kelak bergerak melewati commit yang
-       di-pin, `repo sync` akan gagal menemukannya pada clone dangkal. Solusinya
-       hapus atribut clone-depth di bawah ini, atau naikkan angkanya. -->
-  <project name="meghs-playground/kernel_oppo_msm8939" path="kernel/oppo/msm8939"
-           remote="gh" revision="0efa2fea80994383a6d8e33a1ba87e990b52ec12" upstream="0.0" clone-depth="1" />
+  <!-- Kernel 3.10.108. Fork dari meghs-playground/kernel_oppo_msm8939.
+       Branch lz4-backport menambah library LZ4 dari kernel 3.18 (LTS)
+       supaya zram bisa memakai kompresi lz4 (hook di driver zram sudah
+       ada sejak awal, tapi lib/lz4/ belum pernah disertakan).
+       Fork ini juga sudah membuang scripts/gcc-wrapper.py
+       (CC = $(CROSS_COMPILE)gcc), jadi tidak butuh python2 sama sekali. -->
+  <project name="rigaz29/kernel_oppo_msm8939" path="kernel/oppo/msm8939"
+           remote="gh" revision="98a03ecff1b5a5504f3cfae3c302bae36f993a3b" upstream="lz4-backport" />
 
   <!-- Dependency dari device/oppo/A37/lineage.dependencies -->
   <project name="LineageOS/android_hardware_sony_timekeep" path="hardware/sony/timekeep"
