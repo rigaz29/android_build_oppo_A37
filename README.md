@@ -23,6 +23,7 @@ untuk apa yang sudah dan belum diverifikasi.
 | `patches/device-A37-cryptfshw.patch` | Menambah `cryptfshw@1.0-service-qti.qsee` ke `PRODUCT_PACKAGES` — **sudah ada di fork**, hanya perlu untuk tree hulu |
 | `patches/device-A37-toolchain.patch` | Membuang path toolchain milik mesin pembuat device tree — **sudah ada di fork** |
 | `patches/device-A37-fixes.patch` | Perbaikan hasil analisis device tree — **sudah ada di fork**, lihat [Analisis device tree](#analisis-device-tree) |
+| `patches/device-A37-dt2w.patch` | Menyambungkan DT2W bawaan kernel ke framework, Power HAL, keylayout, dan SELinux; diterapkan otomatis saat build |
 | `patches/gcc-wrapper.py` | Versi python3 dari wrapper kernel — hanya perlu untuk kernel selain yang di-pin |
 | `build-kernel-resukisu.sh` | Bangun kernel + root ReSukiSU, keluar sebagai zip AnyKernel3 |
 | `patches/kernel-resukisu-hooks.patch` | Enam hook manual ReSukiSU + backport `READ_ONCE` untuk kernel 3.10 |
@@ -36,7 +37,7 @@ supaya `repo sync` kapan pun menghasilkan tree yang sama.
 
 | Komponen | Repo | Commit | Branch | Path |
 |---|---|---|---|---|
-| device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `8528d38f107d` | `rb` | `device/oppo/A37` |
+| device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `2e0e8b7f8546` | `rb` | `device/oppo/A37` |
 | vendor | [`meghs-playground/rb-vendor_oppo_A37`](https://github.com/meghs-playground/rb-vendor_oppo_A37) | `6a644358bba6` | `lineage-17.1` | `vendor/oppo` |
 | kernel | [`meghs-playground/kernel_oppo_msm8939`](https://github.com/meghs-playground/kernel_oppo_msm8939) | `0efa2fea8099` | `0.0` | `kernel/oppo/msm8939` |
 | timekeep | [`LineageOS/android_hardware_sony_timekeep`](https://github.com/LineageOS/android_hardware_sony_timekeep) | `858c544d1ad1` | `lineage-17.1` | `hardware/sony/timekeep` |
@@ -62,7 +63,7 @@ Varian kernel [`kernel_oppo_msm8939_`](https://github.com/meghs-playground/kerne
 ### Device tree memakai fork sendiri
 
 Device tree menunjuk ke fork [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37),
-bukan repo hulu. Fork ini berisi sembilan commit di atas `e03d984`:
+bukan repo hulu. Fork ini berisi sepuluh commit di atas `e03d984`:
 
 | Commit | Isi | Sama dengan |
 |---|---|---|
@@ -75,6 +76,7 @@ bukan repo hulu. Fork ini berisi sembilan commit di atas `e03d984`:
 | `75e71a4` | Implementasikan `powerHint` + `setInteractive` di power HAL | — (lihat [Power HAL](#power-hal)) |
 | `70f2ce6` | zram: berhenti meminta compressor yang tidak ada — swap jadi hidup | — (lihat [zram dan swap](#zram-dan-swap)) |
 | `8528d38` | Buang `latch_unsignaled` + 7 properti SF yang nol pembaca | — (lihat [Glitch wallpaper saat layar dinyalakan](#glitch-wallpaper-saat-layar-dinyalakan--selesai)) |
+| `2e0e8b7` | Double-tap-to-wake lewat driver gesture Synaptics OPPO | `patches/device-A37-dt2w.patch` |
 
 Artinya **`patches/device-A37-*.patch` sudah tidak perlu diterapkan lagi** kalau memakai
 manifest ini — `build.sh` akan melaporkan ketiganya "sudah terpasang" dan lanjut tanpa
@@ -536,7 +538,7 @@ terdaftar.
 |---|---|
 | `init.target.rc` tuning zswap (4 baris) | `CONFIG_ZSWAP` butuh `depends on FRONTSWAP && CRYPTO=y`; `CONFIG_FRONTSWAP` mati → kconfig membuang ZSWAP dari `.config`, `/sys/module/zswap/` tidak pernah ada. Param `zpool` bahkan tidak ada di versi zswap ini |
 | `init.target.rc` tuning KSM (3 baris) | `# CONFIG_KSM is not set` |
-| Power HAL double-tap-to-wake | Menulis ke `/sys/android_touch/doubletap2wake` — node itu tidak ada; `doubletap2wake` dan `android_touch` nol hasil di seluruh pohon kernel. Overlay juga tidak menyetel `config_supportsDoubleTapWake`, jadi `setFeature` tidak pernah dipanggil. **Kesimpulan bahwa "kernel tidak punya DT2W" ternyata SALAH** — lihat [DT2W sebenarnya didukung](#dt2w-sebenarnya-didukung-penuh-oleh-kernel) |
+| Power HAL double-tap-to-wake | Menulis ke `/sys/android_touch/doubletap2wake` — node itu memang tidak ada. **Tapi kesimpulan bahwa "kernel tidak punya DT2W" ternyata SALAH**, dan klaim susulan bahwa "overlay tidak menyetel config" juga salah: `config_supportDoubleTapWake=true` sudah ada di overlay sejak `e03d984` — grep saya memakai nama keliru (`config_supportsDoubleTapWake`, ada `s`-nya). DT2W kini diimplementasikan penuh; lihat [DT2W sebenarnya didukung](#dt2w-sebenarnya-didukung-penuh-oleh-kernel) |
 | sepolicy `proc_touchpanel` + label `/sys/android_touch` | Ikut dibuang bersama DT2W; tidak ada aturan allow yang memakainya |
 | `TARGET_EXFAT_DRIVER := sdfat` | Variabel **tidak dibaca apa pun** di LineageOS 17.1 — satu-satunya kemunculan di seluruh tree adalah baris itu sendiri |
 
@@ -708,17 +710,29 @@ tidak ada respons; swipe 2 jari intermiten. Tidak ada register seleksi per-gestu
 `synaptics_enable_interrupt_for_gesture()` hanya menyetel report mode 4 dan mask interrupt
 `0x3f`; `F51_CUSTOM_CTRL00` yang tampak seperti kandidat ternyata glove mode.
 
-**Rencana implementasi sudah siap tapi belum diterapkan** (5 berkas device tree, tanpa fork
-kernel). Detail lengkapnya tersimpan di memory proyek. Dua hal yang wajib diingat saat
-mengerjakannya:
+**Sudah diterapkan sebagai patch build-kit** (`patches/device-A37-dt2w.patch`), tanpa fork
+kernel. Resource `config_supportDoubleTapWake` sudah ada di device tree; patch menambahkan
+callback `setFeature()` ke Power HAL, keylayout `synaptics-s3203.kl`, serta label dan izin
+SELinux yang tepat. Toggle tampil di Settings dan baru aktif pada suspend berikutnya.
+
+Dua hal yang wajib diperhatikan:
 
 - `/proc` harus dilabeli lewat **`genfscon`**, bukan `file_contexts`. Sepolicy kangan yang
   lama punya nama tipe benar (`proc_touchpanel`) tapi melabeli path `/sys/android_touch/...`
   di `file_contexts` — path salah dan mekanisme salah.
 - `def_double_tap_to_wake` bernilai **`true`** di
   `frameworks/base/packages/SettingsProvider/res/values/defaults.xml:182`. Tanpa override,
-  DT2W langsung nyala sendiri dan pengguna kena drain baterai tanpa memilih. Harus
-  dioverride ke `false` di overlay `SettingsProvider` (device tree sudah punya berkasnya).
+  DT2W langsung nyala sendiri dan pengguna kena drain baterai tanpa memilih. Patch
+  meng-override nilainya menjadi `false` untuk instalasi baru.
+
+Untuk **upgrade/dirty flash** dari build sebelum patch ini, jalankan sebelum flash:
+
+```bash
+adb shell settings put secure double_tap_to_wake 0
+```
+
+Nilai secure setting lama mungkin sudah `1` dari default AOSP walau sebelumnya tak dipakai;
+langkah ini memastikan DT2W tetap opt-in setelah framework mulai mendukungnya.
 
 Soal baterai: suspend normal menulis `F01_RMI_CTRL00 = 0x01` (controller → sleep); dengan
 DT2W aktif driver `return 0` lebih awal sehingga baris itu tidak jalan. **Tidak ada regulator
