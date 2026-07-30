@@ -74,7 +74,7 @@ bukan repo hulu. Fork ini berisi sembilan commit di atas `e03d984`:
 | `22dab4b` | Arahkan blob `stats_algorithm` ke shim yang benar | — (hasil [audit ELF](#audit-dependency-elf-dan-simbol)) |
 | `75e71a4` | Implementasikan `powerHint` + `setInteractive` di power HAL | — (lihat [Power HAL](#power-hal)) |
 | `70f2ce6` | zram: berhenti meminta compressor yang tidak ada — swap jadi hidup | — (lihat [zram dan swap](#zram-dan-swap)) |
-| `8528d38` | Buang `latch_unsignaled` + 7 properti SF yang nol pembaca | — (lihat [Glitch wallpaper saat layar dinyalakan](#glitch-wallpaper-saat-layar-dinyalakan)) |
+| `8528d38` | Buang `latch_unsignaled` + 7 properti SF yang nol pembaca | — (lihat [Glitch wallpaper saat layar dinyalakan](#glitch-wallpaper-saat-layar-dinyalakan--selesai)) |
 
 Artinya **`patches/device-A37-*.patch` sudah tidak perlu diterapkan lagi** kalau memakai
 manifest ini — `build.sh` akan melaporkan ketiganya "sudah terpasang" dan lanjut tanpa
@@ -683,12 +683,34 @@ tidak untuk yang mengubah jumlah argumen:
 **Semua simbol ini terbukti tidak dipakai siapa pun di image**, jadi ini masalah laten, bukan
 bug aktif. Dicatat di sini supaya tidak dipakai ulang mentah-mentah untuk device lain.
 
-## Glitch wallpaper saat layar dinyalakan
+## Glitch wallpaper saat layar dinyalakan — SELESAI
 
 **Gejala:** setelah layar dimatikan lalu dinyalakan, wallpaper sesaat tampak tidak pas ke
-layar, lalu benar sendiri. Kadang-kadang saja, tidak setiap kali.
+layar, lalu benar sendiri. Kadang-kadang saja.
 
-**Hipotesis utama — `debug.sf.latch_unsignaled=1`** (dibuang di `8528d38`). Di
+**Penyebabnya: gambar wallpaper itu sendiri, bukan device tree.** Mengganti wallpaper
+menyelesaikannya sepenuhnya. Itu menjelaskan kenapa tidak ada perubahan properti yang
+membantu.
+
+Catatan proses, karena mahal: saya sempat menghabiskan satu siklus build 450 MB untuk
+hipotesis `debug.sf.latch_unsignaled`, lalu dua hipotesis berikutnya (PTOR dan ColorFade)
+ternyata bisa dimatikan **hanya dari `dumpsys SurfaceFlinger`** tanpa build apa pun:
+
+- PTOR/copybit: `Copybit::isAbcInUse=0` — tidak dipakai
+- ColorFade: dumpsys menunjukkan `ColorLayer (ColorFade#0)`. Dengan
+  `config_animateScreenLights=true` → `MODE_FADE` → `ColorFade.java` memakai
+  `builder.setColorLayer()`, yaitu layer warna solid, sehingga **tidak mungkin**
+  menampilkan gambar salah skala.
+
+Geometri steady-state juga terbukti benar: buffer 1440×1440 → `sourceCrop [0,0,810,1440]`
+→ `displayFrame [0,0,720,1280]` dengan `SCALE 0.8889`; 810/1440 = 720/1280 = 0,5625, aspek
+tepat. Pelajarannya: **minta `dumpsys` dan tes substitusi (ganti wallpaper) lebih dulu
+sebelum menebak lewat siklus build.**
+
+### Perubahan `8528d38` tetap dipertahankan
+
+Meski hipotesisnya salah, membuang `debug.sf.latch_unsignaled=1` tetap benar — atas dasar
+kebenaran, bukan performa. Di
 `frameworks/native/services/surfaceflinger/BufferLayer.cpp:579`:
 
 ```cpp
@@ -699,15 +721,26 @@ bool BufferQueueLayer::fenceHasSignaled() const {
 ```
 
 Normalnya SurfaceFlinger menunggu *acquire fence* menyala — tanda GPU selesai menggambar ke
-buffer itu — sebelum menampilkannya. Dengan properti ini pengecekan itu dilewati, jadi SF
-boleh menampilkan buffer yang render-nya **belum selesai**. Cocok dengan artefak satu frame
-yang benar sendiri, dan cocok dengan sifatnya yang kadang-kadang (tergantung render sempat
-selesai atau tidak). Default AOSP memang `0`, jadi membuangnya = kembali ke perilaku benar.
+buffer itu — sebelum menampilkannya. Properti ini melewati pengecekan itu, jadi SF boleh
+menampilkan buffer yang render-nya **belum selesai**. Itu bukan tweak performa, itu
+melanggar jaminan sinkronisasi; default AOSP `0` bukan kelambanan melainkan kebenaran.
 
-**`debug.sf.disable_backpressure=1` sengaja dipertahankan** meski juga tersangka
-(`SurfaceFlinger.cpp:363` → `mPropagateBackpressure=false`). Kalau dua-duanya dibuang
-sekaligus lalu glitch hilang, tidak akan ketahuan mana penyebabnya. Itu variabel berikutnya
-kalau perbaikan ini belum cukup.
+Alasan kuat untuk tidak menyalakannya kembali ada di dumpsys perangkat ini sendiri:
+
+```
+mdpCount: 0  fbCount: 3  pipesUsed: 0        → 100% komposisi di GPU
+Total missed frame count: 260  HWC missed: 259
+```
+
+Perangkat ini sudah kehilangan 259 frame dan mengerjakan seluruh komposisi di GPU — persis
+kondisi di mana menampilkan buffer yang belum selesai menghasilkan artefak. Ditambah
+properti itu berasal dari device tree kangan yang sama yang membawa 7 properti mati, sisa
+Lenovo a6000, dan tulisan sysfs ke node yang tidak ada; tidak ada bukti manfaatnya pernah
+diukur di perangkat ini.
+
+**`debug.sf.disable_backpressure=1` masih ada.** Kategorinya sama (menyimpang dari default
+AOSP, dari tree yang sama) dan layak dibuang atas dasar yang sama, tapi itu perubahan
+perilaku tersendiri — belum disentuh karena tidak ada alasan mendesak.
 
 ### Tujuh properti SF yang nol pembaca
 
@@ -942,11 +975,11 @@ Belum diverifikasi:
 - **swap zram benar-benar naik** ([`70f2ce6`](#zram-dan-swap)) — yang dibuktikan baru bahwa
   berkas init terpasang tidak lagi memuat `write ... comp_algorithm`. Wajib dicek di
   perangkat dengan `cat /proc/swaps`; sebelum ini isinya pasti kosong.
-- **apakah `8528d38` benar-benar menghilangkan glitch wallpaper**
-  ([lihat bagiannya](#glitch-wallpaper-saat-layar-dinyalakan)) — yang dibuktikan baru bahwa
-  delapan properti itu hilang dari `build.prop` dan lima yang dibaca tetap ada. Hipotesisnya
-  masuk akal secara mekanisme, tapi belum terbukti; kalau glitch masih ada, tersangka
-  berikutnya `debug.sf.disable_backpressure`.
+- ~~apakah `8528d38` menghilangkan glitch wallpaper~~ — **sudah terjawab: tidak**, dan
+  ternyata bukan bug device tree. Penyebabnya gambar wallpaper itu sendiri; mengganti
+  wallpaper menyelesaikannya. Lihat
+  [bagiannya](#glitch-wallpaper-saat-layar-dinyalakan--selesai). Perubahan `8528d38` tetap
+  dipertahankan atas dasar kebenaran, bukan karena memperbaiki glitch ini.
 - **Efek nyata power HAL** ([`75e71a4`](#power-hal)) — yang diverifikasi baru bahwa kedua
   path tunable ada di `.so`, `power_hint`/`power_set_interactive` ada di tabel simbol,
   aturan sepolicy masuk policy terbangun, dan `boost_gov_sys`/`boostpulse_gov_sys` memang
