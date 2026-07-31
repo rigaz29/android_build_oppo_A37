@@ -35,10 +35,11 @@
          8528d38  buang latch_unsignaled + 7 properti SF yang nol pembaca
          2e0e8b7  double-tap-to-wake lewat driver gesture Synaptics OPPO
          2e0283e  tambah mapping tombol kapasitif di synaptics-s3203.kl
+         b00f0ee  aktifkan kompresi LZ4 untuk zram swap
        Semua perbaikan dulu diterapkan lewat patches/device-A37-*.patch;
        sekarang sudah menyatu di fork sehingga patch tidak diperlukan lagi. -->
   <project name="rigaz29/rb_device_oppo_A37" path="device/oppo/A37"
-           remote="gh" revision="2e0283eb7386deb736fd9c0d5f9574c83d71f8af" upstream="rb" />
+           remote="gh" revision="b00f0eee506f8d93ebdc869c32a151eaf725ee57" upstream="rb" />
 
   <!-- Vendor blobs. Root repo berisi folder A37/, jadi path-nya vendor/oppo
        (BUKAN vendor/oppo/A37). A37-vendor.mk merujuk 328 file dan semuanya ada.
