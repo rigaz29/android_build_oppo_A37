@@ -54,7 +54,7 @@
        Fork ini juga sudah membuang scripts/gcc-wrapper.py
        (CC = $(CROSS_COMPILE)gcc), jadi tidak butuh python2 sama sekali. -->
   <project name="rigaz29/kernel_oppo_msm8939" path="kernel/oppo/msm8939"
-           remote="gh" revision="6b77f10ab965d214771922f5cdd5f40ae45f0204" upstream="lz4-backport" />
+           remote="gh" revision="cc365282eabec26a0ca27d9c37ef1d987e7fc3d2" upstream="lz4-backport" />
 
   <!-- Dependency dari device/oppo/A37/lineage.dependencies -->
   <project name="LineageOS/android_hardware_sony_timekeep" path="hardware/sony/timekeep"
