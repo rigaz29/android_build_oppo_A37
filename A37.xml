@@ -40,7 +40,7 @@
        Semua perbaikan dulu diterapkan lewat patches/device-A37-*.patch;
        sekarang sudah menyatu di fork sehingga patch tidak diperlukan lagi. -->
   <project name="rigaz29/rb_device_oppo_A37" path="device/oppo/A37"
-           remote="gh" revision="188134b8a119cbe202ada5f7b6130ca0da48e268" upstream="rb" />
+           remote="gh" revision="1f01b605cffd524645c54cc45110b46da989178e" upstream="rb" />
 
   <!-- Vendor blobs. Root repo berisi folder A37/, jadi path-nya vendor/oppo
        (BUKAN vendor/oppo/A37). A37-vendor.mk merujuk 328 file dan semuanya ada.
