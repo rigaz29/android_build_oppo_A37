@@ -40,7 +40,7 @@
        Semua perbaikan dulu diterapkan lewat patches/device-A37-*.patch;
        sekarang sudah menyatu di fork sehingga patch tidak diperlukan lagi. -->
   <project name="rigaz29/rb_device_oppo_A37" path="device/oppo/A37"
-           remote="gh" revision="1f01b605cffd524645c54cc45110b46da989178e" upstream="rb" />
+           remote="gh" revision="a467821da733f5dfdc81bbee1cde760fcf250702" upstream="rb" />
 
   <!-- Vendor blobs. Root repo berisi folder A37/, jadi path-nya vendor/oppo
        (BUKAN vendor/oppo/A37). A37-vendor.mk merujuk 328 file dan semuanya ada.
@@ -56,7 +56,7 @@
        Fork ini juga sudah membuang scripts/gcc-wrapper.py
        (CC = $(CROSS_COMPILE)gcc), jadi tidak butuh python2 sama sekali. -->
   <project name="rigaz29/kernel_oppo_msm8939" path="kernel/oppo/msm8939"
-           remote="gh" revision="3d6389086f7c9679dbd40864a87a1b88666aab9b" upstream="lz4-backport" />
+           remote="gh" revision="dd424b2f66f7bd51b20d3e0c69320d77ec4c6254" upstream="lz4-backport" />
 
   <!-- Dependency dari device/oppo/A37/lineage.dependencies -->
   <project name="LineageOS/android_hardware_sony_timekeep" path="hardware/sony/timekeep"
