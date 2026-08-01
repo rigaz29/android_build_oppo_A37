@@ -54,9 +54,21 @@
        supaya zram bisa memakai kompresi lz4 (hook di driver zram sudah
        ada sejak awal, tapi lib/lz4/ belum pernah disertakan).
        Fork ini juga sudah membuang scripts/gcc-wrapper.py
-       (CC = $(CROSS_COMPILE)gcc), jadi tidak butuh python2 sama sekali. -->
+       (CC = $(CROSS_COMPILE)gcc), jadi tidak butuh python2 sama sekali.
+
+       Branch a12-prep menumpuk empat commit defconfig di atas lz4-backport
+       (70ef81d) sebagai persiapan naik ke LineageOS 19.1:
+         a363b5d  loop device pre-create 8 -> 32; APEX butuh jauh lebih banyak
+         0420b77  CONFIG_QUOTA + QFMT_V2 untuk statistik penyimpanan installd
+         49766c1  CONFIG_MEMCG, sumber event tekanan memori untuk lmkd
+         00fa451  matikan lowmemorykiller in-kernel; lmkd yang memutuskan
+       Keempatnya diverifikasi lewat diff .config, kompilasi, dan simbol di
+       System.map (mem_cgroup_init/dquot_initialize ada, lowmem_scan hilang).
+
+       Commit terakhir satu-satunya yang mengubah perilaku memori. Untuk
+       membangun tanpa dia, pin ke 49766c13971a161b362d08cc415fb2a51abeab2e. -->
   <project name="rigaz29/kernel_oppo_msm8939" path="kernel/oppo/msm8939"
-           remote="gh" revision="70ef81dab7abaac6914d4d1d2f089015ce31465a" upstream="lz4-backport" />
+           remote="gh" revision="00fa4519195ef05304095d941d01353300c27222" upstream="a12-prep" />
 
   <!-- Dependency dari device/oppo/A37/lineage.dependencies -->
   <project name="LineageOS/android_hardware_sony_timekeep" path="hardware/sony/timekeep"
