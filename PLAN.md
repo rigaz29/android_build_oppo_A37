@@ -3,9 +3,10 @@
 Dokumen kerja untuk menaikkan OPPO A37 (MSM8916) dari LineageOS 17.1 ke versi yang lebih
 baru. `README.md` mendokumentasikan ROM 17.1 yang sudah jalan; file ini yang bergerak.
 
-**Target utama: LineageOS 19.1 (Android 12).** LineageOS 20 (Android 13) dicatat sebagai
-titik cabang di tiap bagian, bukan target yang dikejar sekarang — alasannya ada di
-[Kenapa 19.1 dulu](#kenapa-191-dulu).
+**Target: LineageOS 19.1 (Android 12) — diputuskan 1 Agustus 2026.** 18.1 sempat jadi
+kandidat karena eBPF di sana masih opsional, tapi pilihan jatuh ke 19.1 dan konsekuensinya
+diterima: dua tambalan userspace yang harus dirawat. Urutan pengerjaannya ada di
+[Rencana implementasi](#rencana-implementasi-191--wajib-dulu-mudah-ke-sulit).
 
 Terakhir diperbarui: 1 Agustus 2026.
 
@@ -18,24 +19,26 @@ Terakhir diperbarui: 1 Agustus 2026.
 | ROM 17.1 di perangkat | **Boot normal tanpa bug** (dikonfirmasi 1 Agustus 2026) |
 | Kernel `a12-prep` | 4 commit, sudah di-push, sudah di-pin di `A37.xml` |
 | Kernel di perangkat | Masih `70ef81d` — `a12-prep` **belum pernah di-flash** |
-| Tree 19.1 | Belum di-sync |
-| Fase berikutnya | Flash `a12-prep~1`, lalu `a12-prep` |
+| Tree 19.1 | **Ter-sync** di `/root/los19` (118 GB, `lineage-19.1` @ `2202c15`) |
+| Verifikasi 19.1 | Selesai — FDE aman, f2fs ringan, **eBPF ternyata blocker** |
+| Fase berikutnya | Flash `a12-prep~1`, lalu `a12-prep`; putuskan sikap terhadap eBPF |
 
 ---
 
 ## Kenapa 19.1 dulu
 
-Dua hal yang membuat Android 13 jauh lebih mahal untuk kernel 3.10, dan keduanya tidak
-berlaku di Android 12:
+Satu alasan bertahan, satu gugur setelah diverifikasi:
 
-1. **FDE dihapus di A13.** A37 memakai `TARGET_HW_DISK_ENCRYPTION` (dm-req-crypt + QSEE)
-   dengan `encryptable=footer`. Jalur itu masih didukung di A12, jadi enkripsi tidak perlu
-   disentuh sama sekali. Di A13 harus pindah ke FBE — dan fscrypt di kernel ini hanya v1
-   dan hanya ter-hook ke f2fs, ext4 nol referensi.
-2. **eBPF wajib di A13.** Akuntansi trafik pindah ke modul mainline Connectivity yang
-   bpf-only. Kernel ini tidak punya syscall `bpf` sama sekali. Di A11/A12 `bpfloader` dan
-   `netd` masih punya gerbang versi kernel, dan `xt_qtaguid` ada di kernel ini.
-   **Perlu dibuktikan setelah sync** — lihat [Yang harus diverifikasi](#yang-harus-diverifikasi-setelah-sync-191).
+1. **FDE dihapus di A13, masih ada di A12.** ✅ Terkonfirmasi di tree 19.1. A37 memakai
+   `TARGET_HW_DISK_ENCRYPTION` (dm-req-crypt + QSEE) dengan `encryptable=footer`, dan jalur
+   itu utuh di 19.1. Enkripsi tidak perlu disentuh sama sekali. Di A13 harus pindah ke FBE —
+   sedangkan fscrypt di kernel ini hanya v1 dan hanya ter-hook ke f2fs.
+2. ~~eBPF baru wajib di A13; A11/A12 masih punya gerbang versi kernel.~~ ❌ **SALAH.**
+   Diverifikasi terhadap sumber 19.1: gerbang itu tidak ada. eBPF sama wajibnya di Android
+   12. Lihat [Blocker: eBPF](#blocker-ebpf-berlaku-juga-untuk-191).
+
+Jadi 19.1 tetap lebih murah dari 20, tapi selisihnya jauh lebih tipis dari perkiraan awal —
+bedanya tinggal enkripsi, bukan enkripsi *dan* jaringan.
 
 ---
 
@@ -112,14 +115,80 @@ hulu.
 
 ## Fase 3 — mahal, hindari · **BELUM**
 
-- **`fs/fuse` (7.23 → 4.9-an).** Jangan dikerjakan di muka: boot dulu, pakai, ukur. Salinan
-  mentah dari 4.9 tidak akan kompilasi karena VFS 3.10 belum punya `->read_iter`/`iov_iter`
-  modern — ambil 3.18 atau 4.4 sebagai jembatan, patch `FUSE_CANONICAL_PATH` menyusul.
-- **eBPF + cgroup v2.** Tidak relevan untuk 19.1. Untuk 20, jawabannya menambal userspace.
+- **`fs/fuse` (7.23 → 4.9-an).** **Bukan syarat wajib** — koreksi atas klaim awal saya bahwa
+  A12 membuang dukungan sdcardfs. `EmulatedVolume.cpp:269` di 19.1 justru berbunyi *"Mount
+  sdcardfs regardless of FUSE"*, dan `Utils.cpp:1013` `IsSdcardfsUsed()` default `true` selama
+  `sdcardfs` ada di `/proc/filesystems` — kernel ini punya `CONFIG_SDCARD_FS=y`. Kerjakan hanya
+  kalau pengukuran menunjukkan storage lambat. Kalau memang perlu: salinan mentah dari 4.9 tidak
+  akan kompilasi karena VFS 3.10 belum punya `->read_iter`/`iov_iter` modern — ambil 3.18 atau
+  4.4 sebagai jembatan.
+- **cgroup v2.** Tidak wajib: `cgroup_map_write.cpp:413` melewati controller yang gagal dengan
+  `LOG(WARNING)` lalu lanjut, dan kegagalan builtin action di init hanya dicatat.
+- **Backport eBPF ke kernel.** Ditolak sebagai jalur; yang dipakai adalah tambalan userspace di
+  [Rencana implementasi](#rencana-implementasi-191--wajib-dulu-mudah-ke-sulit).
 - **cgroup v2 demi app freezer.** Lewati; kegagalan mount cgroup2 hanya error log di init.
 - **fscrypt untuk ext4.** Hanya perlu kalau mengejar FBE di ext4.
 
 ---
+
+## Rencana implementasi 19.1 — wajib dulu, mudah ke sulit
+
+Definisi **wajib** di sini sempit: tanpa itu ROM tidak boot, atau fungsi inti mati. Sisanya
+masuk kategori nanti, betapapun menggodanya.
+
+Hasil peninjauan: daftar wajib hanya berisi **tiga** hal. Tiga blocker yang sempat saya
+sebut — FUSE, cgroup v2, f2fs — semuanya gugur setelah diperiksa ke sumber.
+
+### W1 · bpfloader berhenti menggagalkan boot — **mudah**
+
+Kembalikan gerbang yang dibuang AOSP di A12. Di `system/bpf/bpfloader/BpfLoader.cpp`, `main()`
+langsung masuk loop `loadAllElfObjects()`; tambahkan keluar-awal di atasnya memakai
+`android::bpf::isAtLeastKernelVersion(4, 9, 0)` yang **sudah ada** di
+`libbpf_android/include/bpf/BpfUtils.h:44` (sekarang hanya dipakai makro GTest).
+
+Acuan persis: AOSP `android-11.0.0_r48` `BpfLoader.cpp:83` — `if (!isBpfSupported()) return 0;`
+
+Ukuran: ~5 baris. Yang harus diputuskan saat mengerjakan: apakah `bpf.progs_loaded=1` tetap
+diset seperti perilaku A10 (`BpfLoader.cpp:100` di 17.1) — perlu dicek dulu apakah ada yang
+menunggu properti itu; pencarian awal di `init.rc` dan netd tidak menemukan penunggu.
+
+**Selesai bila:** `bpfloader` keluar 0 di kernel 3.10, tanpa baris `CRITICAL FAILURE`.
+
+### W2 · netd berhenti crash loop — **sedang**
+
+`Controllers.cpp:288` mematikan netd (`sleep(60); exit(1);`) begitu `TrafficController::start()`
+gagal, dan `start()` tidak lagi punya penjaga.
+
+Jangan mengarang penjaga sendiri: **pakai 18.1 sebagai peta**. Clone-nya sudah ada di scratchpad
+(`android_system_netd` @ `c013516`) dan di sana `mBpfEnabled` menjaga sepuluh titik —
+`TrafficController.cpp` baris 252, 319, 387, 408, 441, 506, 659, dan konstruktor 172/177.
+Pekerjaannya: petakan sepuluh titik itu ke berkas 19.1, lalu kembalikan penjaganya.
+
+`Controllers.cpp` ikut dikembalikan ke perilaku 18.1 — catat error, jangan `exit`.
+
+Ukuran: sedang, dan **inilah tambalan yang harus dirawat** tiap kali upstream bergerak.
+
+**Selesai bila:** netd hidup terus di kernel tanpa bpf, dan `NetworkStatsFactory` jatuh ke
+`/proc/net/xt_qtaguid/stats` — jalur itu masih ada di 19.1 (`NetworkStatsFactory.java:161`)
+dan `xt_qtaguid` ada di kernel ini.
+
+### W3 · device tree, vendor, dan VNDK 31 — **sulit**
+
+Belum diselidiki sama sekali, dan bobotnya melebihi W1 + W2 digabung. Yang sudah pasti:
+tidak ada device tree A37 untuk 19.1, jadi harus diangkat dari fork 17.1
+(`rigaz29/rb_device_oppo_A37` branch `rb`), sementara blob vendornya CAF era Android 6/8.
+
+Ini butuh penyelidikan tersendiri sebelum bisa dipecah jadi langkah. Jangan mulai sebelum
+W1 dan W2 terbukti, supaya kegagalan boot pertama tidak punya tiga tersangka sekaligus.
+
+### Bukan wajib — kerjakan setelah boot pertama
+
+| Item | Kenapa ditunda |
+|---|---|
+| `fs/fuse` | sdcardfs masih dipakai; ini soal kecepatan, bukan syarat |
+| `uid_sys_stats`, `cpufreq_times` | statistik baterai per-aplikasi, tidak memblokir apa pun |
+| syscall `membarrier` | ART punya jalur lain; ukur dulu lewat logcat |
+| cgroup v2, backport eBPF kernel | ditolak sebagai jalur; W1+W2 menggantikannya |
 
 ## Prasyarat non-kernel
 
@@ -137,19 +206,110 @@ dokumen ini. Kernel realistis selesai dalam hitungan hari; sisi treble tidak.
 
 ---
 
-## Yang harus diverifikasi setelah sync 19.1
+## Hasil verifikasi terhadap sumber 19.1 · 1 Agustus 2026
 
-Tiga klaim yang mendasari rencana ini tapi belum dibuktikan terhadap sumber `lineage-19.1`.
-Jangan dianggap benar sampai dicek:
+Tree ter-sync di `/root/los19` (manifest `lineage-19.1`, HEAD `2202c15`, 994 project, 118 GB).
 
-1. **`hardware/lineage/interfaces/cryptfshw` masih ada** dan `system/vold/cryptfs.cpp` masih
-   utuh — dasar dari keputusan "pertahankan FDE".
-2. **`netd` masih punya gerbang bpf.**
-   `grep -rn isBpfSupported system/netd packages/modules/Connectivity`, dan apakah
-   `NetworkStatsFactory` masih membaca `/proc/net/xt_qtaguid/stats`. Kalau ya, seluruh
-   urusan eBPF bisa dicoret.
-3. **Fitur superblock yang ditulis `mkfs.f2fs` A12.** Format kartu dengan `mkfs.f2fs` dari
-   `out`, lalu `dump.f2fs`, bandingkan dengan bitmap fitur kernel.
+### 1. FDE — ✅ aman
+
+| Bukti | Hasil |
+|---|---|
+| `hardware/lineage/interfaces/cryptfshw/` | ada, lengkap dengan `qsee/` |
+| `system/vold/cryptfs.cpp` | ada, 123 KB |
+| `system/core/fs_mgr/fs_mgr_fstab.cpp:189` | masih mem-parse `encryptable=` |
+
+Keputusan "pertahankan FDE, nol pekerjaan kernel untuk enkripsi" tetap berlaku.
+
+### 2. eBPF — ❌ ternyata wajib
+
+Lihat [Blocker: eBPF](#blocker-ebpf-berlaku-juga-untuk-191).
+
+### 3. f2fs — ⚠️ lebih ringan dari dugaan
+
+`fs_mgr_format.cpp:139` memanggil `make_f2fs -g android`. Fitur tambahan hanya ditambahkan
+bila diminta properti: `project_quota,extra_attr` (`external_storage.projid.enabled`),
+`casefold` (`external_storage.casefold.enabled`), `compression` (flag fstab). Ketiganya mati
+secara default.
+
+`-g android` = `CONF_ANDROID` di `f2fs_format_main.c:109` menyalakan tiga bit: `ENCRYPT`
+(0x0001), `QUOTA_INO` (0x0080), `VERITY` (0x0400). Kernel ini hanya mengenal `ENCRYPT` dan
+`BLKZONED` — **tapi `sanity_check_raw_super()` di `fs/f2fs/super.c:1416` tidak memvalidasi
+field `feature` terhadap daftar fitur yang dikenal**, jadi bit asing diabaikan, bukan
+ditolak. Konsekuensinya inode kuota tersembunyi dibuat mkfs tapi tidak dipakai kernel.
+
+Belum dibuktikan dengan mount sungguhan; yang dibaca baru jalur `sanity_check_raw_super`.
+Kalau tetap ingin aman, ext4 untuk `/data` menghapus pertanyaan ini sepenuhnya.
+
+---
+
+## Blocker: eBPF (berlaku juga untuk 19.1)
+
+Klaim saya sebelumnya — bahwa `bpfloader` dan `netd` di A11/A12 masih mundur dengan anggun
+di kernel tanpa bpf — **tidak benar**. Rantai buktinya di tree 19.1:
+
+| Berkas | Isi |
+|---|---|
+| `system/bpf/libbpf_android/include/bpf/BpfUtils.h:44` | `isAtLeastKernelVersion()` ada, tapi satu-satunya pemakainya adalah makro `SKIP_IF_*` untuk GTest. Bukan gerbang runtime. |
+| `system/bpf/bpfloader/BpfLoader.cpp:114` | gagal muat → `"--- DO NOT EXPECT SYSTEM TO BOOT SUCCESSFULLY ---"`, `sleep(20)`, `return 2`. Tidak ada jalan keluar untuk kernel lama. |
+| `system/netd/server/TrafficController.cpp:180` | `initMaps()` membuka enam map ter-pin dari `/sys/fs/bpf` lewat `RETURN_IF_NOT_OK`, tanpa fallback |
+| `system/netd/server/Controllers.cpp:285` | `start()` gagal → `"CRITICAL: sleeping 60 seconds, netd exiting with failure, crash loop likely!"`, `sleep(60)`, `exit(1)` |
+
+Sisi framework justru punya fallback: `NetworkStatsFactory()` (baris 161) menyetel
+`useBpfStats` dari keberadaan `/sys/fs/bpf/map_netd_app_uid_stats_map`, dan jalur
+`/proc/net/xt_qtaguid/stats` masih ada. **Tapi framework tidak menyelamatkan netd** — netd
+mati lebih dulu.
+
+Pilihan, tidak ada yang murah:
+
+| Opsi | Bobot | Catatan |
+|---|---|---|
+| **Turun ke 18.1 (Android 11)** | **nol** | Gerbangnya masih utuh di A11 — lihat tabel di bawah. Tidak ada pekerjaan eBPF sama sekali. |
+| Tambal `system/netd` + `system/bpf` untuk 19.1 | sedang, berkelanjutan | Buat `TrafficController::start()` mengembalikan ok saat map tidak ada, dan `bpfloader` keluar 0 di kernel lama — pada dasarnya mengembalikan kode yang dibuang AOSP di A12. Akuntansi trafik per-UID jatuh ke qtaguid yang sudah didukung framework. |
+| Backport eBPF ke 3.10 | sangat besar | syscall + BPF_FS + verifier + `BPF_PROG_TYPE_CGROUP_SKB` + helper socket cookie + cgroup v2 untuk attach. Fitur kernel 4.4–4.12. |
+
+### Kapan gerbang itu dibuang: A12
+
+Diverifikasi terhadap sumber ketiga versi — 17.1 dari tree lokal, 18.1 dari
+`LineageOS/android_system_netd` (`c013516`), 19.1 dari `/root/los19`, bpfloader A11 dari
+AOSP `android-11.0.0_r48`.
+
+| | 17.1 (A10) | 18.1 (A11) | 19.1 (A12) |
+|---|---|---|---|
+| `bpfloader` di kernel <4.9 | `BpfLoader.cpp:95` lewati `loadAllElfObjects()`, `return 0` | `BpfLoader.cpp:83` `if (!isBpfSupported()) return 0;` | **tidak ada** — langsung muat, gagal → `return 2` |
+| `TrafficController::start()` | `:289` `if (mBpfLevel == NONE) return ok;` | `:252` `if (!mBpfEnabled) return ok;` — plus 9 penjaga lain | **tidak ada penjaga** |
+| `Controllers.cpp` saat gagal | catat error, lanjut | catat error, lanjut | `:288` `sleep(60); exit(1);` — **netd crash loop** |
+
+`ClatdController.cpp:77` di 18.1 bahkan mencetak alasannya terang-terangan: *"Pre-4.9 kernel
+or pre-P api shipping level - disabling clat ebpf."* Jadi pemeriksaan versi 4.9 itu memang
+jalur runtime yang disengaja, bukan sisa kode.
+
+**Kesimpulan: 18.1 jalan di kernel tanpa eBPF; 19.1 tidak, kecuali ditambal.**
+
+---
+
+## Verifikasi 18.1 selengkapnya · 1 Agustus 2026
+
+Diperiksa lewat clone dangkal `lineage-18.1` (`vold` `85ffd68`, `core` `d9e9c75`, `sepolicy`
+`c590512`, `netd` `c013516`) dan AOSP `android-11.0.0_r48` untuk `system/bpf` dan
+`system/memory/lmkd` — dua komponen yang tidak di-fork LineageOS di versi ini.
+
+| Kebutuhan | Hasil | Bukti |
+|---|---|---|
+| eBPF | ✅ opsional | `BpfLoader.cpp:83`, `TrafficController.cpp:252` + 9 penjaga, `Controllers.cpp:286` hanya mencatat |
+| FDE | ✅ ada | `vold/cryptfs.cpp`, 128 KB |
+| **sdcardfs** | ✅ **masih dipakai** | `Utils.cpp:1010` `IsSdcardfsUsed()` = `IsFilesystemSupported("sdcardfs") && GetBoolProperty(..., true)` — default true, dan kernel punya `CONFIG_SDCARD_FS=y` |
+| cgroup v2 | ✅ tidak fatal | `cgroup_map_write.cpp:386` gagal setup → `LOG(WARNING)`, "proceed with the next cgroup". Kegagalan builtin action di init hanya dicatat (`action.cpp:170`) |
+| lmkd | ✅ luwes | `use_inkernel_interface = true` dan `use_psi_monitors = false` sebagai default — LMK in-kernel masih jalur yang sah, PSI tidak wajib |
+| SELinux | ✅ cocok | `policy_version.mk:4` `POLICYVERS ?= 30`; kernel maksimal 30 |
+| f2fs | ⚠️ sama seperti 19.1 | `fs_mgr_format.cpp:139` `make_f2fs -g android`; fitur ekstra hanya bila properti diminta |
+
+**Efeknya pada rencana:** seluruh isi [Fase 3](#fase-3--mahal-hindari--belum) menguap untuk
+18.1 — tidak perlu backport `fs/fuse` (sdcardfs masih dipakai), tidak perlu eBPF, tidak perlu
+cgroup v2. [Fase 0](#fase-0--defconfig-murah--selesai) commit 4 pun jadi opsional, karena
+lmkd A11 masih mau memakai LMK in-kernel.
+
+**Belum diperiksa untuk 18.1:** VNDK 30 dan treble — dan justru di situlah bobot kerja
+sesungguhnya, sama seperti untuk 19.1. Verifikasi di atas hanya menyangkut sisi kernel.
 
 ---
 
@@ -191,3 +351,9 @@ milik Android · f2fs hanya mengenal `ENCRYPT|BLKZONED`
 | 1 Ags 2026 | Backport eBPF + PSI yang setengah jadi dibuang | syscall `bpf` tidak pernah di-wire, hook PSI tidak pernah masuk `kernel/sched/core.c`; dan 19.1 kemungkinan tidak membutuhkannya |
 | 1 Ags 2026 | `build-kernel.sh` menarik dari repo, bukan tree lokal | hasil build hanya bergantung pada apa yang sudah di-push, bisa direproduksi mesin lain |
 | 1 Ags 2026 | `A37.xml` di-pin ke `a12-prep` | agar build ROM berikutnya memakai kernel ini; konsekuensinya ROM akan memuat keempat commit sekaligus, termasuk yang mematikan LMK |
+| 1 Ags 2026 | Hapus `/root/los17/out` (45 GB) untuk memberi ruang tree 19.1 | zip `20260731` dan `20260801` beserta boot/recovery diarsipkan dulu ke `/root/a37-dl` — sebelumnya hanya `20260730` yang punya salinan |
+| 1 Ags 2026 | Local manifest **tidak** dipasang di `/root/los19` | `A37.xml` berisi pin era 17.1 (device tree branch `rb`, vendor `lineage-17.1`); memasangnya akan menarik komponen yang tidak cocok |
+| 1 Ags 2026 | **Koreksi:** eBPF wajib juga di 19.1 | diverifikasi ke sumber; asumsi "gerbang versi kernel" keliru. Menaikkan bobot 19.1 secara mendasar — lihat [Blocker: eBPF](#blocker-ebpf-berlaku-juga-untuk-191) |
+| 1 Ags 2026 | Gerbang bpf ternyata dibuang tepat di A12; A11 masih punya | 18.1 jadi kandidat target terkuat karena biaya eBPF-nya nol. Target resmi belum diubah — menunggu keputusan |
+| 1 Ags 2026 | **Tetap 19.1**, tidak turun ke 18.1 | keputusan pemilik proyek; konsekuensinya dua tambalan userspace (W1, W2) yang harus dirawat |
+| 1 Ags 2026 | **Koreksi:** sdcardfs masih dipakai di 19.1 | `EmulatedVolume.cpp:269` + `Utils.cpp:1013`; klaim "A12 FUSE-only" keliru, jadi backport `fs/fuse` keluar dari daftar wajib |
