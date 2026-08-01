@@ -25,9 +25,11 @@ untuk apa yang sudah dan belum diverifikasi.
 | `patches/device-A37-fixes.patch` | Perbaikan hasil analisis device tree — **sudah ada di fork**, lihat [Analisis device tree](#analisis-device-tree) |
 | `patches/device-A37-dt2w.patch` | Menyambungkan DT2W bawaan kernel ke framework, Power HAL, keylayout, dan SELinux; diterapkan otomatis saat build |
 | `patches/gcc-wrapper.py` | Versi python3 dari wrapper kernel — hanya perlu untuk kernel selain yang di-pin |
+| `build-kernel.sh` | Bangun kernel saja (tanpa root, tanpa ROM) dari repo atau tree lokal, keluar sebagai zip AnyKernel3 |
 | `build-kernel-resukisu.sh` | Bangun kernel + root ReSukiSU, keluar sebagai zip AnyKernel3 |
 | `patches/kernel-resukisu-hooks.patch` | Enam hook manual ReSukiSU + backport `READ_ONCE` untuk kernel 3.10 |
 | `KERNEL-RESUKISU.md` | Panduan kernel + ReSukiSU (jalur otomatis & manual) |
+| `PLAN.md` | Rencana dan progres menuju LineageOS 19.1 — fase, keputusan, dan hasil audit kernel |
 | `README.md` | Dokumen ini |
 
 ## Konfigurasi yang terbukti boot
@@ -37,11 +39,18 @@ supaya `repo sync` kapan pun menghasilkan tree yang sama.
 
 | Komponen | Repo | Commit | Branch | Path |
 |---|---|---|---|---|
-| device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `2e0e8b7f8546` | `rb` | `device/oppo/A37` |
+| device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `547f8ca55536` | `rb` | `device/oppo/A37` |
 | vendor | [`meghs-playground/rb-vendor_oppo_A37`](https://github.com/meghs-playground/rb-vendor_oppo_A37) | `6a644358bba6` | `lineage-17.1` | `vendor/oppo` |
-| kernel | [`meghs-playground/kernel_oppo_msm8939`](https://github.com/meghs-playground/kernel_oppo_msm8939) | `0efa2fea8099` | `0.0` | `kernel/oppo/msm8939` |
+| kernel | [`rigaz29/kernel_oppo_msm8939`](https://github.com/rigaz29/kernel_oppo_msm8939) (fork) | `00fa4519195e` | `a12-prep` | `kernel/oppo/msm8939` |
 | timekeep | [`LineageOS/android_hardware_sony_timekeep`](https://github.com/LineageOS/android_hardware_sony_timekeep) | `858c544d1ad1` | `lineage-17.1` | `hardware/sony/timekeep` |
 | stlport | [`LineageOS/android_external_stlport`](https://github.com/LineageOS/android_external_stlport) | — | `lineage-15.1` | `external/stlport` |
+
+> **Kernel di tabel ini belum diuji boot.** Yang terbukti boot sampai homescreen adalah
+> `70ef81dab7abaac6914d4d1d2f089015ce31465a` (branch `lz4-backport`). Branch `a12-prep`
+> menumpuk empat commit defconfig di atasnya sebagai persiapan LineageOS 19.1: jumlah loop
+> device untuk APEX, `CONFIG_QUOTA`, `CONFIG_MEMCG`, dan mematikan lowmemorykiller in-kernel.
+> Keempatnya sudah diverifikasi sampai simbol di `System.map`, tapi itu bukan pengujian di
+> perangkat. Untuk kembali ke kernel yang terbukti, pin `revision` ke SHA `70ef81d…` di atas.
 
 Empat hal yang sering bikin salah pasang:
 
@@ -310,6 +319,58 @@ lalu `mka bacon` ulang.
 | `installclean` | `--installclean` | `m installclean` |
 
 ---
+
+## Kernel murni (opsional)
+
+`build-kernel.sh` membangun kernel saja — tanpa root, tanpa ROM — lalu membungkusnya jadi zip
+AnyKernel3. Gunanya menguji perubahan defconfig atau backport dalam hitungan menit, bukan lewat
+siklus build ROM 450 MB.
+
+```bash
+./build-kernel.sh                     # tarik dari repo, bangun branch a12-prep
+./build-kernel.sh --rev lz4-backport  # branch, tag, atau SHA lain di remote
+./build-kernel.sh --local             # pakai tree hasil repo sync, tanpa jaringan
+```
+
+Default-nya menarik sendiri dari `rigaz29/kernel_oppo_msm8939` ke `$WORK/kernel`, jadi hasilnya
+hanya bergantung pada apa yang sudah di-push — bukan pada keadaan `repo sync` Anda. Objek git
+dipinjam dari tree lokal bila ada (`--reference-if-able` + `--dissociate`), jadi clone pertama
+tidak perlu menarik ~1 GB dari jaringan tapi hasilnya tetap mandiri.
+
+Kompilasi selalu out-of-tree (`O=$WORK/out`), jadi tree kernel hasil `repo sync` **tidak pernah
+dikotori**: HEAD maupun status gitnya sama persis sebelum dan sesudah build.
+
+| Perilaku | Mode repo (default) | `--local` |
+|---|---|---|
+| Sumber | `$KERNEL_REPO` → `$WORK/kernel` | `$LOS_TREE/kernel/oppo/msm8939` |
+| HEAD dipindah | ya — workdir milik skrip | tidak, kecuali `--checkout` |
+| Butuh jaringan | ya (fetch) | tidak |
+| Branch yang belum di-push | ditolak, disertai dua jalan keluar | jalan |
+
+### Verifikasi simbol
+
+`.config` yang benar belum tentu jadi biner yang benar. Dua variabel opsional menggagalkan build
+kalau isi `System.map` tidak sesuai harapan — dipakai untuk membuktikan sebuah opsi benar-benar
+mendarat di vmlinux, bukan sekadar tercatat di `.config`:
+
+```bash
+EXPECT_SYMS="mem_cgroup_init dquot_initialize sys_quotactl" \
+EXPECT_NO_SYMS="lowmem_scan lowmem_shrink" \
+./build-kernel.sh --rev a12-prep
+```
+
+### Zip-nya menambal, bukan mengganti
+
+Zip AnyKernel3 di sini memakai `split_boot`/`flash_boot`: hanya `Image` dan `dt` yang diganti,
+ramdisk `boot.img` yang sedang terpasang dipakai ulang apa adanya. Jadi zip ini terikat pada ROM
+yang ada di perangkat — bukan `boot.img` mandiri, dan tidak bisa dipakai untuk memasang ROM baru.
+
+Untuk menguji perubahan bertahap, pin per commit:
+
+```bash
+./build-kernel.sh --rev 49766c13971a161b362d08cc415fb2a51abeab2e   # a12-prep tanpa commit LMK
+./build-kernel.sh --rev a12-prep                                   # keempatnya
+```
 
 ## Kernel dengan root (opsional)
 
