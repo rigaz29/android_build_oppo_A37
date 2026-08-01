@@ -19,9 +19,12 @@ Terakhir diperbarui: 1 Agustus 2026.
 | ROM 17.1 di perangkat | **Boot normal tanpa bug** (dikonfirmasi 1 Agustus 2026) |
 | Kernel `a12-prep` | 4 commit, sudah di-push, sudah di-pin di `A37.xml` |
 | Kernel di perangkat | Masih `70ef81d` — `a12-prep` **belum pernah di-flash** |
-| Tree 19.1 | **Ter-sync** di `/root/los19` (118 GB, `lineage-19.1` @ `2202c15`) |
-| Verifikasi 19.1 | Selesai — FDE aman, f2fs ringan, **eBPF ternyata blocker** |
-| Fase berikutnya | Flash `a12-prep~1`, lalu `a12-prep`; putuskan sikap terhadap eBPF |
+| Tree 19.1 | **Ter-sync dan bisa `lunch`** di `/root/los19` — `lineage_A37-eng`, PLATFORM_VERSION=12 |
+| Verifikasi 19.1 | Selesai — FDE aman, f2fs ringan, sdcardfs masih dipakai, **eBPF blocker** |
+| Device tree 19.1 | `rigaz29/rb_device_oppo_A37` branch `a12-prep` — 15 commit dari `rb` di atas basis 19.1 |
+| Manifest 19.1 | `A37-19.1.xml`, 10 project, terbukti lunch |
+| W1 (bpfloader) | Kode selesai, di-fork ke `rigaz29/android_system_bpf`, sudah di-pin manifest |
+| Fase berikutnya | W2 (netd), lalu `ro.kernel.ebpf.supported=false` di device tree, lalu build penuh |
 
 ---
 
@@ -139,7 +142,28 @@ masuk kategori nanti, betapapun menggodanya.
 Hasil peninjauan: daftar wajib hanya berisi **tiga** hal. Tiga blocker yang sempat saya
 sebut — FUSE, cgroup v2, f2fs — semuanya gugur setelah diperiksa ke sumber.
 
-### W1 · bpfloader berhenti menggagalkan boot — **mudah**
+### W1 · bpfloader berhenti menggagalkan boot — **KODE SELESAI**
+
+Dikerjakan 1 Agustus 2026 lewat cherry-pick dari `LineageOS-UL/android_system_bpf`
+branch `lineage-19.1`, commit `8a936bb` "Ignore bpf errors for < 4.9 kernels"
+(SagarMakhar/rajkale99). Ada di `/root/los19/system/bpf` branch `lineage-19.1-a37`
+sebagai `5710a2b`; penulis asli, `Signed-off-by`, dan `Change-Id` terjaga.
+
+**Metodenya berbeda dari rancangan awal di bawah, dan sengaja.** Rancangan awal memakai
+`isAtLeastKernelVersion(4, 9, 0)`; yang dipakai adalah properti `ro.kernel.ebpf.supported`
+(default `true`). Alasannya patch netd untuk W2 memakai properti yang sama persis — dua
+komponen yang harus sepakat lebih baik dikendalikan satu sakelar daripada dua mekanisme
+deteksi yang bisa berbeda pendapat. `bpf.progs_loaded=1` tetap diset walau pemuatan
+dilewati, menjawab pertanyaan terbuka di rancangan.
+
+Terverifikasi: `BpfLoader.cpp` hasilnya **byte-identik** dengan milik UL, dan
+`#include <android-base/properties.h>` sudah ada di baris 41.
+
+**Belum terverifikasi, dan tidak bisa untuk sekarang** — lihat
+[Kompilasi terkunci di W3](#kompilasi-terkunci-di-w3--sudah-terbuka). Patch ini juga belum berpengaruh
+apa pun sampai `ro.kernel.ebpf.supported=false` diset di device tree 19.1, yang belum ada.
+
+<details><summary>Rancangan awal (disimpan sebagai catatan)</summary>
 
 Kembalikan gerbang yang dibuang AOSP di A12. Di `system/bpf/bpfloader/BpfLoader.cpp`, `main()`
 langsung masuk loop `loadAllElfObjects()`; tambahkan keluar-awal di atasnya memakai
@@ -153,6 +177,40 @@ diset seperti perilaku A10 (`BpfLoader.cpp:100` di 17.1) — perlu dicek dulu ap
 menunggu properti itu; pencarian awal di `init.rc` dan netd tidak menemukan penunggu.
 
 **Selesai bila:** `bpfloader` keluar 0 di kernel 3.10, tanpa baris `CRITICAL FAILURE`.
+
+</details>
+
+### Kompilasi terkunci di W3 — **SUDAH TERBUKA**
+
+Hambatan di bawah berlaku 1 Agustus 2026 pagi dan **sudah tidak berlaku**: setelah
+`A37-19.1.xml` disusun dan device tree `a12-prep` ter-sync, `lunch lineage_A37-eng`
+berhasil. Catatan ini disimpan karena menjelaskan kenapa W1 sempat tidak bisa diuji.
+
+<details><summary>Uraian hambatan yang sudah lewat</summary>
+
+Uji kompilasi W1 dicoba dan **gagal karena lingkungan, bukan karena patch**:
+
+```
+error: vendor/lineage/build/soong/Android.bp:24:8: module "generated_kernel_includes":
+       cmd: unknown variable '$(PATH_OVERRIDE_SOONG)'
+```
+
+`PATH_OVERRIDE_SOONG` didefinisikan di `vendor/lineage/config/BoardConfigSoong.mk`, yang
+hanya ikut ter-include kalau target lunch-nya perangkat LineageOS. Soong mengurai
+`vendor/lineage/build/soong/Android.bp` untuk **target apa pun**, termasuk `aosp_arm64`,
+jadi tree ini tidak bisa membangun apa-apa selama belum ada device tree. Tidak ada target
+lineage yang bisa dipakai: `device/lineage/car` dan `atv` adalah produk basis untuk
+diwarisi, bukan perangkat.
+
+**Konsekuensi:** W1 dan W2 hanya bisa diverifikasi sampai tingkat isi berkas sampai W3
+menghasilkan device tree yang bisa di-lunch. Ini menaikkan prioritas W3 dari "terakhir"
+menjadi "penghalang verifikasi" — kerangka device tree minimal yang cukup untuk `lunch`
+sudah bernilai walau ROM-nya belum jalan.
+
+</details>
+
+Menaikkan prioritas W3 itu ternyata keputusan yang tepat, dan lebih murah dari dugaan:
+tree 19.1-nya sudah ada, tinggal dipasang.
 
 ### W2 · netd berhenti crash loop — **sedang**
 
@@ -172,14 +230,36 @@ Ukuran: sedang, dan **inilah tambalan yang harus dirawat** tiap kali upstream be
 `/proc/net/xt_qtaguid/stats` — jalur itu masih ada di 19.1 (`NetworkStatsFactory.java:161`)
 dan `xt_qtaguid` ada di kernel ini.
 
-### W3 · device tree, vendor, dan VNDK 31 — **sulit**
+### W3 · device tree, vendor, dan VNDK 31 — **KERANGKA SELESAI**
 
-Belum diselidiki sama sekali, dan bobotnya melebihi W1 + W2 digabung. Yang sudah pasti:
-tidak ada device tree A37 untuk 19.1, jadi harus diangkat dari fork 17.1
-(`rigaz29/rb_device_oppo_A37` branch `rb`), sementara blob vendornya CAF era Android 6/8.
+Ternyata jauh lebih murah dari dugaan, karena tree-nya sudah ada:
+**`meghs-playground/rb_device_oppo_A37` punya branch `lineage-19.1`** — penulis yang sama
+dengan tree 17.1, perangkat yang sama, 1679 commit, dan sudah memuat penyesuaian era A12
+(`manifest.xml` VINTF `target-level="legacy"`, `compatibility_matrix.xml`,
+`PRODUCT_VENDOR_MOVE_ENABLED`). Gunung VNDK/treble yang saya perkirakan berminggu-minggu
+sudah didaki di tree itu.
 
-Ini butuh penyelidikan tersendiri sebelum bisa dipecah jadi langkah. Jangan mulai sebelum
-W1 dan W2 terbukti, supaya kegagalan boot pertama tidak punya tiga tersangka sekaligus.
+Yang dikerjakan 1 Agustus 2026: branch `a12-prep` di `rigaz29/rb_device_oppo_A37`, berisi
+kelima belas commit dari branch `rb` di atas basis 19.1. Empat bentrok dan diselesaikan
+dengan menyesuaikan niatnya, bukan menimpa — rinciannya ada di komentar `A37-19.1.xml`.
+Efek samping: `5dd5150f` menambal rujukan putus di tree 19.1 (`device.mk:441` menyalin
+`keylayout/synaptics-s3203.kl` padahal berkasnya tidak ada).
+
+**`A37-19.1.xml`** menyusul, 10 project. Dua di antaranya tidak akan ketemu dari
+`lineage.dependencies` dan baru terungkap lewat `meghs-playground/manifest_A37` dan
+kegagalan `lunch`:
+
+- **`hardware/qcom-caf/msm8916/{audio,display,media}`** — manifest 19.1 menyediakan
+  qcom-caf untuk msm8953 sampai sm8350, tapi **tidak msm8916**
+- **`device/qcom/sepolicy-legacy`** — `BoardConfig.mk:212` meng-include `sepolicy.mk` dari
+  sana; repo resmi LineageOS mentok di `lineage-16.0`, jadi dipakai fork LineageOS-UL
+  branch `lineage-19.1-legacy`
+
+**`lunch lineage_A37-eng` berhasil** — `TARGET_PRODUCT=lineage_A37`, `PLATFORM_VERSION=12`.
+Kunci verifikasi yang tadinya menahan W1 dan W2 kini terbuka.
+
+Sisa W3 yang belum disentuh: apakah ROM-nya benar-benar terbangun dan boot. Kerangka
+build berdiri, isinya belum diuji sama sekali.
 
 ### Bukan wajib — kerjakan setelah boot pertama
 
@@ -355,5 +435,8 @@ milik Android · f2fs hanya mengenal `ENCRYPT|BLKZONED`
 | 1 Ags 2026 | Local manifest **tidak** dipasang di `/root/los19` | `A37.xml` berisi pin era 17.1 (device tree branch `rb`, vendor `lineage-17.1`); memasangnya akan menarik komponen yang tidak cocok |
 | 1 Ags 2026 | **Koreksi:** eBPF wajib juga di 19.1 | diverifikasi ke sumber; asumsi "gerbang versi kernel" keliru. Menaikkan bobot 19.1 secara mendasar — lihat [Blocker: eBPF](#blocker-ebpf-berlaku-juga-untuk-191) |
 | 1 Ags 2026 | Gerbang bpf ternyata dibuang tepat di A12; A11 masih punya | 18.1 jadi kandidat target terkuat karena biaya eBPF-nya nol. Target resmi belum diubah — menunggu keputusan |
+| 1 Ags 2026 | Device tree 19.1 **diambil**, bukan dibuat sendiri | `meghs-playground/rb_device_oppo_A37` branch `lineage-19.1` berbagi riwayat dengan fork `rb`, jadi kelima belas perbaikan bisa di-cherry-pick, bukan ditulis ulang. Membuat dari nol berarti mengulang 1679 commit kerja spesifik-perangkat |
+| 1 Ags 2026 | Semua 15 commit dipindahkan, tidak ada yang dilewati | permintaan pemilik proyek; pasangan zram (`13e89533`+`96f95213`) hasil akhirnya sama dengan kalau dilewati, tapi jejak riwayatnya utuh dan bisa di-bisect |
+| 1 Ags 2026 | W1 di-fork ke `rigaz29/android_system_bpf` dan di-pin manifest | branch lokal yang tidak di-pin bisa hilang diam-diam saat `repo sync --force-sync`; `system/bpf` datang dari remote aosp sehingga perlu `remove-project` dulu |
 | 1 Ags 2026 | **Tetap 19.1**, tidak turun ke 18.1 | keputusan pemilik proyek; konsekuensinya dua tambalan userspace (W1, W2) yang harus dirawat |
 | 1 Ags 2026 | **Koreksi:** sdcardfs masih dipakai di 19.1 | `EmulatedVolume.cpp:269` + `Utils.cpp:1013`; klaim "A12 FUSE-only" keliru, jadi backport `fs/fuse` keluar dari daftar wajib |

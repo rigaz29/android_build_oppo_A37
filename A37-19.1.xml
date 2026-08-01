@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Local manifest: LineageOS 19.1 (Android 12) untuk OPPO A37 / A37f / A37fw
+  Chipset: Qualcomm MSM8916 (Snapdragon 410), codename LineageOS: A37
+
+  Taruh di: .repo/local_manifests/A37.xml
+  (build.sh masih menunjuk A37.xml yang 17.1 — untuk 19.1 salin berkas ini
+   sendiri, atau jalankan repo init -b lineage-19.1 lalu salin manual.)
+
+  STATUS: BELUM PERNAH DIBANGUN, apalagi boot. Berbeda dengan A37.xml yang
+  17.1, kombinasi di bawah adalah hasil penyusunan, bukan hasil pengujian.
+  Sampai `lunch lineage_A37-eng` dan `m` benar-benar dijalankan, anggap ini
+  hipotesis yang tersusun rapi.
+
+  SHA harus ditulis lengkap 40 karakter — repo memperlakukan SHA singkat
+  sebagai nama branch dan sync akan gagal dengan "couldn't find remote ref".
+-->
+<manifest>
+  <remote name="gh" fetch="https://github.com/" />
+
+  <!-- Device tree. Fork rigaz29, branch a12-prep.
+       Basisnya meghs-playground/rb_device_oppo_A37 branch lineage-19.1 —
+       1679 commit, sudah memuat penyesuaian era A12 yang tidak ada di branch
+       rb: manifest.xml VINTF (target-level="legacy"), compatibility_matrix.xml,
+       PRODUCT_VENDOR_MOVE_ENABLED, dan hasil merge dari cyanogen_msm8916-common.
+
+       Di atasnya ditumpuk kelima belas commit dari branch rb — seluruh
+       perbaikan yang membuat ROM 17.1 stabil. Empat di antaranya bentrok dan
+       diselesaikan dengan menyesuaikan niatnya ke tree 19.1, bukan menimpa:
+         46cf436a  shim kamera: 19.1 punya enam shim dan memakai +=; versi rb
+                   memakai := dengan tiga entri dan akan membuang sisanya
+         c37c543d  sepolicy/file.te dipertahankan; di 19.1 proc_touchpanel
+                   masih dirujuk system_server.te, vold.te, hal_power_default.te
+         eab36c0d  aturan proc_touchpanel milik 19.1 dan aturan governor dari
+                   rb digabung, bukan dipilih salah satu
+         03de1ded  aturan DT2W dari rb redundan (rw_file_perms sudah superset),
+                   hanya komentarnya yang diambil
+       Sebagai efek samping, 5dd5150f menambal rujukan putus di tree 19.1:
+       device.mk:441 menyalin keylayout/synaptics-s3203.kl padahal berkasnya
+       tidak ada di sana. -->
+  <project name="rigaz29/rb_device_oppo_A37" path="device/oppo/A37"
+           remote="gh" revision="80b8b7d9bdb3e827e85f22293d274c5159b0d377" upstream="a12-prep" />
+
+  <!-- Vendor blobs untuk 19.1. Repo ini BUKAN yang dipakai 17.1
+       (rb-vendor_oppo_A37 mentok di lineage-18.1). Root berisi folder A37/,
+       jadi path-nya vendor/oppo — bukan vendor/oppo/A37.
+       Pasangan ini diambil dari manifest meghs sendiri (meghs-playground/
+       manifest_A37), yang memasang proprietary_vendor_oppo_A37 di vendor/oppo.
+       Alternatif setara: meghs-playground/rb-vendor_oppo branch lineage-19.1,
+       isinya sama plus Android.bp. -->
+  <project name="meghs-playground/proprietary_vendor_oppo_A37" path="vendor/oppo"
+           remote="gh" revision="3a59f08f548000cd018767e9684d1b10c75947d2" upstream="lineage-19.1" />
+
+  <!-- Kernel 3.10.108, fork rigaz29 branch a12-prep: empat commit defconfig di
+       atas lz4-backport (loop device untuk APEX, CONFIG_QUOTA, CONFIG_MEMCG,
+       dan mematikan lowmemorykiller in-kernel). Tidak ada branch 19.1 di hulu
+       meghs — kernelnya hanya punya branch 0.0 — jadi fork ini memang jalurnya.
+
+       PERHATIAN: keempat commit itu belum pernah di-flash. Untuk memakai kernel
+       yang terbukti boot, pin ke 70ef81dab7abaac6914d4d1d2f089015ce31465a. -->
+  <project name="rigaz29/kernel_oppo_msm8939" path="kernel/oppo/msm8939"
+           remote="gh" revision="00fa4519195ef05304095d941d01353300c27222" upstream="a12-prep" />
+
+  <!-- hardware/qcom-caf untuk msm8916.
+       WAJIB dan mudah terlewat: manifest LineageOS 19.1 menyediakan qcom-caf
+       untuk msm8953, msm8996, msm8998, sdm845, sm8150, sm8250, dan sm8350 —
+       tapi TIDAK msm8916. Karena BoardConfig menyetel TARGET_BOARD_PLATFORM
+       := msm8916, build akan mencari hardware/qcom-caf/msm8916 dan tidak
+       menemukannya. device.mk:63 juga menyebut tree display ini secara
+       eksplisit. Ketiganya diambil dari manifest meghs. -->
+  <project name="LineageOS/android_hardware_qcom_audio" path="hardware/qcom-caf/msm8916/audio"
+           remote="gh" revision="e0e79d6281d55c4f0c93ec7d471d4554281a796b" upstream="lineage-19.0-caf-msm8916" />
+  <project name="LineageOS/android_hardware_qcom_display" path="hardware/qcom-caf/msm8916/display"
+           remote="gh" revision="984ff8f2142912cd682de872db3643843e3cb075" upstream="lineage-19.0-caf-msm8916" />
+  <project name="LineageOS/android_hardware_qcom_media" path="hardware/qcom-caf/msm8916/media"
+           remote="gh" revision="bf62f596b10d39caf9c4208ce767a7deed662a1c" upstream="lineage-19.0-caf-msm8916" />
+
+  <!-- sepolicy-legacy. WAJIB: BoardConfig.mk:212 melakukan
+       `include device/qcom/sepolicy-legacy/sepolicy.mk`, dan manifest
+       LineageOS 19.1 hanya menyediakan device/qcom/sepolicy,
+       sepolicy-legacy-um, dan sepolicy_vndr — tidak ada sepolicy-legacy.
+       Repo LineageOS/android_device_qcom_sepolicy-legacy mentok di
+       lineage-16.0, jadi yang dipakai fork LineageOS-UL yang memang merawat
+       jalur legacy untuk perangkat lama. Root reponya berisi sepolicy.mk dan
+       direktori msm8916 yang dibutuhkan device ini. -->
+  <project name="LineageOS-UL/android_device_qcom_sepolicy" path="device/qcom/sepolicy-legacy"
+           remote="gh" revision="470e8d88f1490b24bfe76aa17bd2ea57bcaa4c27" upstream="lineage-19.1-legacy" />
+
+  <!-- Dependency dari device/oppo/A37/lineage.dependencies -->
+  <project name="LineageOS/android_hardware_sony_timekeep" path="hardware/sony/timekeep"
+           remote="gh" revision="e0b2fbd9b8bd9ac7661fbf1cb5e6fc4fba922a55" upstream="lineage-19.1" />
+
+  <!-- Di-pin manual: android_external_stlport tidak punya branch lineage-19.1
+       (branch terbaru di repo itu lineage-15.1). Sama seperti di A37.xml 17.1,
+       roomservice akan gagal sync kalau dibiarkan mencari nama branch. -->
+  <project name="LineageOS/android_external_stlport" path="external/stlport"
+           remote="gh" revision="66a8b10f0d9836bb33ea0a1c32962619c7a9ee32" upstream="lineage-15.1" />
+
+  <!-- W1: bpfloader berhenti menggagalkan boot di kernel tanpa eBPF.
+       Kernel 3.10 tidak punya syscall bpf, sedangkan A12 membuang gerbang versi
+       kernel yang masih ada di A11 — bpfloader gagal keras dengan return 2.
+       Cherry-pick dari LineageOS-UL/android_system_bpf (commit 8a936bb oleh
+       SagarMakhar/rajkale99) yang memasang gerbang berbasis properti
+       ro.kernel.ebpf.supported; berkas hasilnya byte-identik dengan milik UL.
+
+       system/bpf datang dari remote aosp di manifest hulu, jadi harus
+       di-remove-project dulu sebelum bisa diganti. -->
+  <remove-project name="platform/system/bpf" />
+  <project name="rigaz29/android_system_bpf" path="system/bpf"
+           remote="gh" revision="5710a2b7b8bfd7774dc328366a09642957e0f1c1" upstream="lineage-19.1-a37" />
+
+  <!-- W2 (netd) BELUM DIKERJAKAN. Controllers.cpp:288 melakukan
+       sleep(60)+exit(1) saat TrafficController::start() gagal, sehingga netd
+       crash loop. Perbaikannya ada sebagai cherry-pick e3c9266d dari
+       LineageOS-UL/android_system_netd (berbagi riwayat dengan LineageOS 19.1,
+       jadi akan bersih). Setelah di-fork dan di-push, tambahkan:
+
+    <remove-project name="LineageOS/android_system_netd" />
+    <project name="rigaz29/android_system_netd" path="system/netd"
+             remote="gh" revision="<SHA>" upstream="lineage-19.1-a37" />
+
+       CATATAN untuk W1 dan W2: keduanya tidak berpengaruh apa pun sampai
+       device tree menyetel ro.kernel.ebpf.supported=false. Itu belum ada di
+       branch a12-prep. -->
+</manifest>
