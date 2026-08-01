@@ -39,7 +39,7 @@
        device.mk:441 menyalin keylayout/synaptics-s3203.kl padahal berkasnya
        tidak ada di sana. -->
   <project name="rigaz29/rb_device_oppo_A37" path="device/oppo/A37"
-           remote="gh" revision="80b8b7d9bdb3e827e85f22293d274c5159b0d377" upstream="a12-prep" />
+           remote="gh" revision="fd0eae052612989b61df5de26c6497454c44ecf1" upstream="a12-prep" />
 
   <!-- Vendor blobs untuk 19.1. Repo ini BUKAN yang dipakai 17.1
        (rb-vendor_oppo_A37 mentok di lineage-18.1). Root berisi folder A37/,
@@ -109,17 +109,20 @@
   <project name="rigaz29/android_system_bpf" path="system/bpf"
            remote="gh" revision="5710a2b7b8bfd7774dc328366a09642957e0f1c1" upstream="lineage-19.1-a37" />
 
-  <!-- W2 (netd) BELUM DIKERJAKAN. Controllers.cpp:288 melakukan
-       sleep(60)+exit(1) saat TrafficController::start() gagal, sehingga netd
-       crash loop. Perbaikannya ada sebagai cherry-pick e3c9266d dari
-       LineageOS-UL/android_system_netd (berbagi riwayat dengan LineageOS 19.1,
-       jadi akan bersih). Setelah di-fork dan di-push, tambahkan:
+  <!-- W2: netd berhenti crash loop di kernel tanpa eBPF.
+       Controllers.cpp:288 melakukan sleep(60)+exit(1) begitu
+       TrafficController::start() gagal. Cherry-pick e3c9266d dari
+       LineageOS-UL/android_system_netd — empat baris, memakai properti yang
+       sama dengan W1; berkas hasilnya identik dengan milik UL.
 
-    <remove-project name="LineageOS/android_system_netd" />
-    <project name="rigaz29/android_system_netd" path="system/netd"
-             remote="gh" revision="<SHA>" upstream="lineage-19.1-a37" />
+       Sisi framework sudah punya jalan mundur sendiri: NetworkStatsFactory
+       memilih jalur dari keberadaan /sys/fs/bpf/map_netd_app_uid_stats_map,
+       dan xt_qtaguid ada di kernel ini. -->
+  <remove-project name="LineageOS/android_system_netd" />
+  <project name="rigaz29/android_system_netd" path="system/netd"
+           remote="gh" revision="5d5c71faa205084b6ab19c767e444eb4d56e55d1" upstream="lineage-19.1-a37" />
 
-       CATATAN untuk W1 dan W2: keduanya tidak berpengaruh apa pun sampai
-       device tree menyetel ro.kernel.ebpf.supported=false. Itu belum ada di
-       branch a12-prep. -->
+  <!-- CATATAN untuk W1 dan W2: keduanya membaca ro.kernel.ebpf.supported yang
+       default-nya true, jadi tidak berpengaruh apa pun sampai device tree
+       menyetelnya false. Itu sudah ada sejak commit fd0eae0 di a12-prep. -->
 </manifest>

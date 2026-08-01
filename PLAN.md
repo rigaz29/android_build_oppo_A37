@@ -23,8 +23,10 @@ Terakhir diperbarui: 1 Agustus 2026.
 | Verifikasi 19.1 | Selesai — FDE aman, f2fs ringan, sdcardfs masih dipakai, **eBPF blocker** |
 | Device tree 19.1 | `rigaz29/rb_device_oppo_A37` branch `a12-prep` — 15 commit dari `rb` di atas basis 19.1 |
 | Manifest 19.1 | `A37-19.1.xml`, 10 project, terbukti lunch |
-| W1 (bpfloader) | Kode selesai, di-fork ke `rigaz29/android_system_bpf`, sudah di-pin manifest |
-| Fase berikutnya | W2 (netd), lalu `ro.kernel.ebpf.supported=false` di device tree, lalu build penuh |
+| W1 (bpfloader) | ✅ selesai — kode, kompilasi, biner, ter-pin |
+| W2 (netd) | ✅ selesai — kode, kompilasi, biner, ter-pin |
+| Properti pengaktif | ✅ `ro.kernel.ebpf.supported=false` terverifikasi sampai variabel build |
+| Fase berikutnya | Build ROM penuh — belum pernah dijalankan sekali pun |
 
 ---
 
@@ -159,9 +161,13 @@ dilewati, menjawab pertanyaan terbuka di rancangan.
 Terverifikasi: `BpfLoader.cpp` hasilnya **byte-identik** dengan milik UL, dan
 `#include <android-base/properties.h>` sudah ada di baris 41.
 
-**Belum terverifikasi, dan tidak bisa untuk sekarang** — lihat
-[Kompilasi terkunci di W3](#kompilasi-terkunci-di-w3--sudah-terbuka). Patch ini juga belum berpengaruh
-apa pun sampai `ro.kernel.ebpf.supported=false` diset di device tree 19.1, yang belum ada.
+**Terverifikasi penuh 1 Agustus 2026 sore.** `m bpfloader` → exit 0; biner ARM 32-bit di
+`out/target/product/A37/system/bin/bpfloader` memuat string `ro.kernel.ebpf.supported` dan
+`bpf.progs_loaded`, sementara `DO NOT EXPECT SYSTEM TO BOOT` **tetap ada** — jalur gagal-keras
+tidak dilumpuhkan, hanya digerbangi. Di-fork ke `rigaz29/android_system_bpf` dan di-pin
+manifest lewat `remove-project` (wajib: `system/bpf` datang dari remote aosp).
+
+Properti pengaktifnya ada di device tree sejak `fd0eae0`.
 
 <details><summary>Rancangan awal (disimpan sebagai catatan)</summary>
 
@@ -212,23 +218,28 @@ sudah bernilai walau ROM-nya belum jalan.
 Menaikkan prioritas W3 itu ternyata keputusan yang tepat, dan lebih murah dari dugaan:
 tree 19.1-nya sudah ada, tinggal dipasang.
 
-### W2 · netd berhenti crash loop — **sedang**
+### W2 · netd berhenti crash loop — **SELESAI**
 
-`Controllers.cpp:288` mematikan netd (`sleep(60); exit(1);`) begitu `TrafficController::start()`
-gagal, dan `start()` tidak lagi punya penjaga.
+Dikerjakan 1 Agustus 2026 lewat cherry-pick `e3c9266d` dari
+`LineageOS-UL/android_system_netd` branch `lineage-19.1`. Berbagi riwayat dengan LineageOS
+19.1, jadi terpakai bersih; `server/Controllers.cpp` hasilnya identik dengan milik UL. Ada
+di `rigaz29/android_system_netd` branch `lineage-19.1-a37` sebagai `5d5c71fa`, di-pin
+manifest lewat `remove-project`.
 
-Jangan mengarang penjaga sendiri: **pakai 18.1 sebagai peta**. Clone-nya sudah ada di scratchpad
-(`android_system_netd` @ `c013516`) dan di sana `mBpfEnabled` menjaga sepuluh titik —
-`TrafficController.cpp` baris 252, 319, 387, 408, 441, 506, 659, dan konstruktor 172/177.
-Pekerjaannya: petakan sepuluh titik itu ke berkas 19.1, lalu kembalikan penjaganya.
+Terverifikasi: `m netd` → exit 0, biner 505 KB memuat `ro.kernel.ebpf.supported`, dan string
+`crash loop likely` **tetap ada** — bloknya utuh, hanya digerbangi.
 
-`Controllers.cpp` ikut dikembalikan ke perilaku 18.1 — catat error, jangan `exit`.
+**Jauh lebih kecil dari perkiraan awal.** Rancangan saya mengembalikan sepuluh penjaga
+`mBpfEnabled` dengan 18.1 sebagai peta. Patch UL hanya empat baris: satu properti dan satu
+`&& ebpf_supported` pada kondisi `exit(1)`.
 
-Ukuran: sedang, dan **inilah tambalan yang harus dirawat** tiap kali upstream bergerak.
-
-**Selesai bila:** netd hidup terus di kernel tanpa bpf, dan `NetworkStatsFactory` jatuh ke
-`/proc/net/xt_qtaguid/stats` — jalur itu masih ada di 19.1 (`NetworkStatsFactory.java:161`)
-dan `xt_qtaguid` ada di kernel ini.
+**Batas yang harus disadari:** karena hanya titik fatal yang dijaga,
+`TrafficController::start()` tetap gagal dan map bpf-nya tetap tidak terbuka — netd sekadar
+tidak lagi bunuh diri karenanya. Apakah pemanggilan berikutnya (tag socket, firewall chain)
+gagal dengan anggun **belum bisa dipastikan tanpa perangkat**. Yang menopang keputusan ini:
+pendekatan tersebut sudah dipakai di lapangan pada perangkat MSM8916 oleh LineageOS-UL, dan
+sisi framework punya jalan mundur sendiri — `NetworkStatsFactory.java:161` memilih jalurnya
+dari keberadaan `/sys/fs/bpf/map_netd_app_uid_stats_map`, dan `xt_qtaguid` ada di kernel ini.
 
 ### W3 · device tree, vendor, dan VNDK 31 — **KERANGKA SELESAI**
 
@@ -258,8 +269,23 @@ kegagalan `lunch`:
 **`lunch lineage_A37-eng` berhasil** — `TARGET_PRODUCT=lineage_A37`, `PLATFORM_VERSION=12`.
 Kunci verifikasi yang tadinya menahan W1 dan W2 kini terbuka.
 
-Sisa W3 yang belum disentuh: apakah ROM-nya benar-benar terbangun dan boot. Kerangka
-build berdiri, isinya belum diuji sama sekali.
+**Tiga cacat bawaan tree 19.1** ditemukan saat mencoba `m bpfloader`, dan semuanya menghalangi
+build sebelum satu berkas pun dikompilasi. Tidak satu pun berasal dari kelima belas commit
+`rb` — diverifikasi ada di basis `d13d7ac`:
+
+| Berhenti di | Masalah | Perbaikan |
+|---|---|---|
+| 26% kati | `libshims_ril` kembar antara `Android.mk` dan `Android.bp` | `c37b941` — buang yang di `.mk`; versi `.bp` punya `soc_specific: true` sehingga mendarat di `/vendor` bersama blob yang di-shim |
+| 86% kati | `init.recovery.qcom.rc` kembar; satu blok salah nama dan akan menimpa init recovery dengan konfigurasi power | `7f90402` — ganti nama jadi `init.recovery.power.rc`, yaitu nama yang memang di-import `etc/init.recovery.qcom.rc` |
+| 99% kati | `libbfqio` hilang — dibuang LineageOS setelah 17.1, masih dipakai `hwc_vsync.cpp:22` | `e37b138` — bawa tiga berkasnya ke device tree, jangan fork tree display demi dua baris |
+
+Artinya tree 19.1 milik meghs memang **belum pernah dibangun oleh siapa pun** dalam kondisi
+ini. Pantas diingat saat menemui kegagalan berikutnya: kemungkinan besar masih ada cacat
+serupa yang baru muncul ketika modul lain ikut dibangun.
+
+Sisa W3 yang belum disentuh: apakah ROM-nya benar-benar terbangun dan boot. Yang terbukti
+baru empat modul (`netd`, `bpfloader`, dan dependensinya); build penuh belum pernah
+dijalankan.
 
 ### Bukan wajib — kerjakan setelah boot pertama
 
