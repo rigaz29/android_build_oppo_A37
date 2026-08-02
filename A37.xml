@@ -56,19 +56,20 @@
        Fork ini juga sudah membuang scripts/gcc-wrapper.py
        (CC = $(CROSS_COMPILE)gcc), jadi tidak butuh python2 sama sekali.
 
-       Branch a12-prep menumpuk empat commit defconfig di atas lz4-backport
-       (70ef81d) sebagai persiapan naik ke LineageOS 19.1:
-         a363b5d  loop device pre-create 8 -> 32; APEX butuh jauh lebih banyak
-         0420b77  CONFIG_QUOTA + QFMT_V2 untuk statistik penyimpanan installd
-         49766c1  CONFIG_MEMCG, sumber event tekanan memori untuk lmkd
-         00fa451  matikan lowmemorykiller in-kernel; lmkd yang memutuskan
-       Keempatnya diverifikasi lewat diff .config, kompilasi, dan simbol di
-       System.map (mem_cgroup_init/dquot_initialize ada, lowmem_scan hilang).
+       Di-pin ke 70ef81d, kernel yang TERBUKTI boot sampai homescreen —
+       bukan ke branch a12-prep. Branch itu punya empat commit defconfig di
+       atas 70ef81d (loop device untuk APEX, CONFIG_QUOTA, CONFIG_MEMCG, dan
+       mematikan lowmemorykiller in-kernel) yang dibuat sebagai persiapan
+       LineageOS 19.1. Keempatnya diverifikasi sampai simbol System.map dan
+       build Image bersih, tapi **belum pernah di-flash**, sedangkan berkas ini
+       menggambarkan konfigurasi 17.1 yang terbukti jalan.
 
-       Commit terakhir satu-satunya yang mengubah perilaku memori. Untuk
-       membangun tanpa dia, pin ke 49766c13971a161b362d08cc415fb2a51abeab2e. -->
+       Proyek 19.1 dihentikan 2 Agustus 2026; lihat PLAN.md. Branch a12-prep
+       tetap ada di fork, dan zip AnyKernel3-nya di /root/kbuild, kalau
+       keempat commit itu mau diuji terpisah suatu saat. -->
+
   <project name="rigaz29/kernel_oppo_msm8939" path="kernel/oppo/msm8939"
-           remote="gh" revision="00fa4519195ef05304095d941d01353300c27222" upstream="a12-prep" />
+           remote="gh" revision="70ef81dab7abaac6914d4d1d2f089015ce31465a" upstream="lz4-backport" />
 
   <!-- Dependency dari device/oppo/A37/lineage.dependencies -->
   <project name="LineageOS/android_hardware_sony_timekeep" path="hardware/sony/timekeep"

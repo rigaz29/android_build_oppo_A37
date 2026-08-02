@@ -1,7 +1,23 @@
 # Rencana dan progres — OPPO A37
 
+> ## ⛔ PROYEK 19.1 DIHENTIKAN — 2 Agustus 2026
+>
+> ROM berhasil dibangun dan di-flash, lalu **stuck di logo OPPO** — tidak sampai
+> bootanimation, dan `adb` tidak terdeteksi sama sekali meski build varian `eng` dengan
+> `ro.adb.secure=0`. Diagnosis berhenti di sini atas keputusan pemilik proyek.
+>
+> **Tidak ada yang dihapus.** `/root/los19` (130 GB) masih utuh, seluruh branch dan repo di
+> GitHub masih ada, ROM 19.1 beserta boot/recovery tersimpan di `/root/a37-dl`. Dokumen ini
+> tetap akurat sebagai catatan sejauh mana pekerjaan sampai — **jangan mulai ulang dari nol
+> kalau suatu saat dilanjutkan.**
+>
+> `A37.xml` (17.1) sudah dikembalikan ke kernel `70ef81d` yang terbukti boot, supaya ROM 17.1
+> yang jalan di perangkat tidak ikut tergantung pada pekerjaan yang belum teruji.
+>
+> Kalau dilanjutkan, titik lanjutnya ada di [Langkah diagnosis berikutnya](#langkah-diagnosis-berikutnya-belum-dijalankan).
+
 Dokumen kerja untuk menaikkan OPPO A37 (MSM8916) dari LineageOS 17.1 ke versi yang lebih
-baru. `README.md` mendokumentasikan ROM 17.1 yang sudah jalan; file ini yang bergerak.
+baru. `README.md` mendokumentasikan ROM 17.1 yang sudah jalan.
 
 **Target: LineageOS 19.1 (Android 12) — diputuskan 1 Agustus 2026.** 18.1 sempat jadi
 kandidat karena eBPF di sana masih opsional, tapi pilihan jatuh ke 19.1 dan konsekuensinya
@@ -27,8 +43,9 @@ Terakhir diperbarui: 1 Agustus 2026.
 | W2 (netd) | ✅ selesai — kode, kompilasi, biner, ter-pin |
 | Properti pengaktif | ✅ `ro.kernel.ebpf.supported=false` ada di `build.prop` image |
 | **Build ROM 19.1** | ✅ **berhasil 2 Agustus 2026** — `lineage-19.1-20260802-UNOFFICIAL-rigaz29-A37.zip`, 560 MB |
-| ROM 19.1 di perangkat | ❌ **belum pernah di-flash** — yang terbukti baru bahwa ia terbangun |
-| Fase berikutnya | Flash dan cari tahu apakah boot |
+| ROM 19.1 di perangkat | ❌ **di-flash, stuck di logo OPPO** — tidak sampai bootanimation, `adb` nihil |
+| Status proyek | ⛔ **dihentikan 2 Agustus 2026**, tanpa penghapusan apa pun |
+| Pin kernel `A37.xml` (17.1) | dikembalikan ke `70ef81d` yang terbukti boot |
 
 ---
 
@@ -320,13 +337,43 @@ Cacat #4 lolos dari empat build kernel sebelumnya karena `build-kernel.sh` membu
 `$WORK/out` sendiri; jalur itu hanya tersentuh ketika soong yang memanggil `make` dengan
 direktori yang sengaja dihapus lebih dulu.
 
-**Yang belum terbukti: apa pun tentang perangkat.** Boot, WiFi, telepon, kamera — nol bukti.
-Dua hal yang paling mungkin bermasalah lebih dulu:
+### Hasil di perangkat: stuck di logo OPPO
 
-1. Cakupan W2 terbatas — lihat catatan di [W2](#w2--netd-berhenti-crash-loop--selesai).
-2. `unpack_bootimg` gagal membaca `boot.img` hasil build dengan `UnicodeDecodeError`; hanya
-   warning saat build, diduga terkait `BOARD_KERNEL_SEPARATED_DT` yang memisahkan bagian
-   `dt`. Layak diingat kalau flash berperilaku aneh.
+Di-flash 2 Agustus 2026 dengan `/data` sudah diformat. **Berhenti di logo OPPO** — tidak
+pernah sampai bootanimation — dan `adb devices` tidak mendeteksi apa pun, padahal build ini
+varian `eng` dengan `ro.debuggable=1` dan `ro.adb.secure=0` sehingga `adbd` mestinya hidup
+lebih awal dari biasanya. Artinya init mati sebelum `adbd` sempat start, atau kernel panic
+lebih dulu.
+
+Yang sempat dicoret sebelum diagnosis dihentikan:
+
+- **`boot.img` sehat.** Header dibandingkan dengan `boot.img` 17.1 yang terbukti boot:
+  pagesize 2048, base `0x80000000`, dan `dt_size` 210944 — sama persis, dan cocok dengan
+  `dt.img` keluaran `dtbToolOppo`. Peringatan `unpack_bootimg` (`UnicodeDecodeError`) saat
+  build memang benign: alat AOSP itu tidak mengenal field `dt_size` khas Qualcomm.
+- **Bukan sisa enkripsi 17.1** — `/data` sudah diformat sebelum flash.
+
+### Langkah diagnosis berikutnya (belum dijalankan)
+
+Kalau proyek ini dilanjutkan, mulai dari sini — bukan dari nol:
+
+1. **Boot ke recovery 19.1.** `recovery.img` memakai kernel yang sama persis dengan
+   `boot.img`, hanya ramdisk-nya berbeda. Recovery boot normal → kernel sehat, masalah murni
+   di system/init, dan kelima commit kernel bisa dicoret sekaligus tanpa flash apa pun.
+   Recovery ikut stuck → kernel jadi tersangka.
+2. **Ambil ramoops.** Kernel punya `CONFIG_PSTORE_RAM` dan cmdline membawa
+   `ramoops.mem_address=0x9ff00000`; isinya bertahan melewati reboot hangat. Setelah stuck,
+   tahan Power sampai reboot (jangan cabut baterai), masuk recovery, lalu
+   `adb shell cat /sys/fs/pstore/console-ramoops-0`. Di situ akan terlihat apakah kernel
+   panic atau init berhenti, dan di baris apa.
+3. Tersangka teratas kalau ternyata userspace: cakupan W2 yang hanya menjaga titik `exit(1)`
+   tanpa mengembalikan sepuluh penjaga `mBpfEnabled` — lihat
+   [W2](#w2--netd-berhenti-crash-loop--selesai).
+
+**Jangan kembali ke kernel `70ef81d` untuk 19.1.** `BLK_DEV_LOOP_MIN_COUNT` di sana masih
+default 8, sedangkan A12 memasang puluhan APEX yang masing-masing butuh loop device;
+`apexd` gagal adalah persis jenis kegagalan yang menghentikan init sebelum apa pun tampil.
+Keempat commit kernel lebih mungkin menolong daripada menyebabkan masalah ini.
 
 ### Bukan wajib — kerjakan setelah boot pertama
 
@@ -513,5 +560,7 @@ milik Android · f2fs hanya mengenal `ENCRYPT|BLKZONED`
 | 1 Ags 2026 | W1 di-fork ke `rigaz29/android_system_bpf` dan di-pin manifest | branch lokal yang tidak di-pin bisa hilang diam-diam saat `repo sync --force-sync`; `system/bpf` datang dari remote aosp sehingga perlu `remove-project` dulu |
 | 2 Ags 2026 | Delapan cacat build diperbaiki di device tree/kernel kita, bukan dengan mem-fork tree bersama | `sepolicy-legacy` dan tree display dipakai banyak perangkat; menanggung fork besar demi satu-dua baris tidak sepadan. `libbfqio` dibawa ke device tree dengan alasan yang sama |
 | 2 Ags 2026 | `/root/los17` dihapus seluruhnya | disk habis di tahap pengemasan. Aman: keempat project bersih di SHA yang di-pin, dan zip ROM 17.1 sudah diarsipkan |
+| 2 Ags 2026 | **Proyek 19.1 dihentikan** setelah ROM stuck di logo OPPO | keputusan pemilik proyek. Tidak ada yang dihapus — tree, branch, repo, dan ROM tetap utuh supaya bisa dilanjutkan tanpa mengulang |
+| 2 Ags 2026 | Pin kernel `A37.xml` (17.1) dikembalikan ke `70ef81d` | manifest 17.1 sempat menunjuk `a12-prep` yang belum pernah di-flash. ROM 17.1 yang jalan di perangkat tidak boleh bergantung pada pekerjaan yang belum teruji. Branch `a12-prep` tetap ada, zip AnyKernel3-nya di `/root/kbuild` |
 | 1 Ags 2026 | **Tetap 19.1**, tidak turun ke 18.1 | keputusan pemilik proyek; konsekuensinya dua tambalan userspace (W1, W2) yang harus dirawat |
 | 1 Ags 2026 | **Koreksi:** sdcardfs masih dipakai di 19.1 | `EmulatedVolume.cpp:269` + `Utils.cpp:1013`; klaim "A12 FUSE-only" keliru, jadi backport `fs/fuse` keluar dari daftar wajib |

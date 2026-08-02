@@ -42,7 +42,7 @@ supaya `repo sync` kapan pun menghasilkan tree yang sama.
 |---|---|---|---|---|
 | device | [`rigaz29/rb_device_oppo_A37`](https://github.com/rigaz29/rb_device_oppo_A37) (fork) | `547f8ca55536` | `rb` | `device/oppo/A37` |
 | vendor | [`meghs-playground/rb-vendor_oppo_A37`](https://github.com/meghs-playground/rb-vendor_oppo_A37) | `6a644358bba6` | `lineage-17.1` | `vendor/oppo` |
-| kernel | [`rigaz29/kernel_oppo_msm8939`](https://github.com/rigaz29/kernel_oppo_msm8939) (fork) | `00fa4519195e` | `a12-prep` | `kernel/oppo/msm8939` |
+| kernel | [`rigaz29/kernel_oppo_msm8939`](https://github.com/rigaz29/kernel_oppo_msm8939) (fork) | `70ef81dab7ab` | `lz4-backport` | `kernel/oppo/msm8939` |
 | timekeep | [`LineageOS/android_hardware_sony_timekeep`](https://github.com/LineageOS/android_hardware_sony_timekeep) | `858c544d1ad1` | `lineage-17.1` | `hardware/sony/timekeep` |
 | stlport | [`LineageOS/android_external_stlport`](https://github.com/LineageOS/android_external_stlport) | — | `lineage-15.1` | `external/stlport` |
 
