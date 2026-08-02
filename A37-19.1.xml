@@ -39,7 +39,7 @@
        device.mk:441 menyalin keylayout/synaptics-s3203.kl padahal berkasnya
        tidak ada di sana. -->
   <project name="rigaz29/rb_device_oppo_A37" path="device/oppo/A37"
-           remote="gh" revision="fd0eae052612989b61df5de26c6497454c44ecf1" upstream="a12-prep" />
+           remote="gh" revision="dc3f3c9bb93f5d6997127ceacff8ea9a5fc4dfda" upstream="a12-prep" />
 
   <!-- Vendor blobs untuk 19.1. Repo ini BUKAN yang dipakai 17.1
        (rb-vendor_oppo_A37 mentok di lineage-18.1). Root berisi folder A37/,
@@ -59,7 +59,7 @@
        PERHATIAN: keempat commit itu belum pernah di-flash. Untuk memakai kernel
        yang terbukti boot, pin ke 70ef81dab7abaac6914d4d1d2f089015ce31465a. -->
   <project name="rigaz29/kernel_oppo_msm8939" path="kernel/oppo/msm8939"
-           remote="gh" revision="00fa4519195ef05304095d941d01353300c27222" upstream="a12-prep" />
+           remote="gh" revision="ec427db4f985011389bc2e87a3804159aeaa0d13" upstream="a12-prep" />
 
   <!-- hardware/qcom-caf untuk msm8916.
        WAJIB dan mudah terlewat: manifest LineageOS 19.1 menyediakan qcom-caf

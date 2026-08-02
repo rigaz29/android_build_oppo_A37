@@ -25,8 +25,10 @@ Terakhir diperbarui: 1 Agustus 2026.
 | Manifest 19.1 | `A37-19.1.xml`, 10 project, terbukti lunch |
 | W1 (bpfloader) | ✅ selesai — kode, kompilasi, biner, ter-pin |
 | W2 (netd) | ✅ selesai — kode, kompilasi, biner, ter-pin |
-| Properti pengaktif | ✅ `ro.kernel.ebpf.supported=false` terverifikasi sampai variabel build |
-| Fase berikutnya | Build ROM penuh — belum pernah dijalankan sekali pun |
+| Properti pengaktif | ✅ `ro.kernel.ebpf.supported=false` ada di `build.prop` image |
+| **Build ROM 19.1** | ✅ **berhasil 2 Agustus 2026** — `lineage-19.1-20260802-UNOFFICIAL-rigaz29-A37.zip`, 560 MB |
+| ROM 19.1 di perangkat | ❌ **belum pernah di-flash** — yang terbukti baru bahwa ia terbangun |
+| Fase berikutnya | Flash dan cari tahu apakah boot |
 
 ---
 
@@ -283,9 +285,48 @@ Artinya tree 19.1 milik meghs memang **belum pernah dibangun oleh siapa pun** da
 ini. Pantas diingat saat menemui kegagalan berikutnya: kemungkinan besar masih ada cacat
 serupa yang baru muncul ketika modul lain ikut dibangun.
 
-Sisa W3 yang belum disentuh: apakah ROM-nya benar-benar terbangun dan boot. Yang terbukti
-baru empat modul (`netd`, `bpfloader`, dan dependensinya); build penuh belum pernah
-dijalankan.
+### Build ROM penuh — berhasil 2 Agustus 2026
+
+```
+lineage-19.1-20260802-UNOFFICIAL-rigaz29-A37.zip   560 MB
+cf5a6d9d5753528014d3a65510abce119c3ba3db67a52f4caf7fdbddf618f983
+```
+
+Diarsipkan ke `/root/a37-dl` bersama `boot.img` (18 MB) dan `recovery.img` (25 MB), sha256
+diverifikasi dan masuk `SHA256SUMS`.
+
+Terverifikasi di dalam image: `ro.build.version.release=12`,
+`ro.lineage.version=19.1-20260802-UNOFFICIAL-rigaz29-A37`,
+`ro.kernel.ebpf.supported=false` di `build.prop`, dan kedua biner `system/bin/bpfloader`
+serta `system/bin/netd` memuat string gerbang properti. Rantai W1–W2 utuh dari device tree
+sampai biner terpasang.
+
+**Sembilan kali gagal sebelum tuntas.** Delapan cacat nyata, nol berasal dari kelima belas
+commit `rb`:
+
+| # | Sumber | Masalah | Perbaikan |
+|---|---|---|---|
+| 1 | device tree | `libshims_ril` kembar `.mk`/`.bp` | `c37b941` |
+| 2 | device tree | `init.recovery.qcom.rc` kembar, satu blok salah nama | `7f90402` |
+| 3 | device tree | `libbfqio` dibuang LineageOS setelah 17.1, masih dipakai display HAL | `e37b138` |
+| 4 | **kernel 3.10** | Makefile tidak membuat direktori output yang dihapus soong | `ec427db` |
+| 5 | device tree | `power_profile.xml` diawali baris kosong sebelum `<?xml` | `5a9485e` |
+| 6 | sepolicy-legacy | `sysfs_disk_stat` dibuang AOSP setelah 10, masih dilabeli | `46adbad` |
+| 7 | device tree | spesifikasi gatekeeper kembar di vendor dan system_ext | `e69181f` |
+| 8 | device tree | empat properti bentrok nilai antara `system.prop` dan `device.mk` | `dc3f3c9` |
+| 9 | lingkungan | disk habis di tahap pengemasan (267 MB tersisa) | hapus `/root/los17` |
+
+Cacat #4 lolos dari empat build kernel sebelumnya karena `build-kernel.sh` membuat
+`$WORK/out` sendiri; jalur itu hanya tersentuh ketika soong yang memanggil `make` dengan
+direktori yang sengaja dihapus lebih dulu.
+
+**Yang belum terbukti: apa pun tentang perangkat.** Boot, WiFi, telepon, kamera — nol bukti.
+Dua hal yang paling mungkin bermasalah lebih dulu:
+
+1. Cakupan W2 terbatas — lihat catatan di [W2](#w2--netd-berhenti-crash-loop--selesai).
+2. `unpack_bootimg` gagal membaca `boot.img` hasil build dengan `UnicodeDecodeError`; hanya
+   warning saat build, diduga terkait `BOARD_KERNEL_SEPARATED_DT` yang memisahkan bagian
+   `dt`. Layak diingat kalau flash berperilaku aneh.
 
 ### Bukan wajib — kerjakan setelah boot pertama
 
@@ -298,13 +339,19 @@ dijalankan.
 
 ## Prasyarat non-kernel
 
-**Disk akan menggigit lebih dulu daripada kernel.** Per 1 Agustus 2026: sisa 154 GB,
-sementara `/root/los17` sendiri 131 GB (`out/` 45 GB, `.repo/` 37 GB). Tree kedua tidak muat
-berdampingan begitu keduanya punya `out/`. Pilih salah satu sebelum `repo init`:
+**Disk menggigit dua kali, persis seperti diperkirakan.** Per 1 Agustus 2026 sisa 154 GB
+sementara `/root/los17` sendiri 131 GB, jadi `out/` 17.1 dihapus lebih dulu (+45 GB) setelah
+zip-nya diarsipkan. Itu cukup untuk sync dan seluruh kompilasi, tapi **habis di tahap
+pengemasan** — `add_img_to_target_files` menyalin seluruh SYSTEM ke direktori sementara soong
+dan sisa 267 MB tidak cukup.
 
-- hapus `/root/los17/out` setelah zip 17.1 diarsipkan (+45 GB)
-- `repo init --reference=/root/los17` supaya objek git dipakai bersama (+~35 GB)
-- kerjakan bergantian, jangan paralel
+`/root/los17` akhirnya dihapus seluruhnya pada 2 Agustus 2026 (+87 GB). Aman karena keempat
+project-nya bersih di SHA yang di-pin `A37.xml` sehingga bisa di-sync ulang persis, dan tiga
+zip ROM 17.1 beserta boot/recovery sudah ada di `/root/a37-dl`.
+
+Efek sampingnya: `build-kernel.sh` default `LOS_TREE=$HOME/los17` yang kini tidak ada.
+Toolchain punya jalan mundur (clone prebuilt sendiri) tapi `dtbToolOppo` diambil dari
+`$LOS_TREE/device/oppo/A37/dtbtool` dan akan gagal. Jalankan dengan `LOS_TREE=/root/los19`.
 
 **Yang sebenarnya menentukan: treble dan VNDK 31.** Device tree A37 masih non-treble era
 17.1 dengan blob CAF Android 6/8. Bobot kerja di situ jauh melebihi seluruh daftar kernel di
@@ -464,5 +511,7 @@ milik Android · f2fs hanya mengenal `ENCRYPT|BLKZONED`
 | 1 Ags 2026 | Device tree 19.1 **diambil**, bukan dibuat sendiri | `meghs-playground/rb_device_oppo_A37` branch `lineage-19.1` berbagi riwayat dengan fork `rb`, jadi kelima belas perbaikan bisa di-cherry-pick, bukan ditulis ulang. Membuat dari nol berarti mengulang 1679 commit kerja spesifik-perangkat |
 | 1 Ags 2026 | Semua 15 commit dipindahkan, tidak ada yang dilewati | permintaan pemilik proyek; pasangan zram (`13e89533`+`96f95213`) hasil akhirnya sama dengan kalau dilewati, tapi jejak riwayatnya utuh dan bisa di-bisect |
 | 1 Ags 2026 | W1 di-fork ke `rigaz29/android_system_bpf` dan di-pin manifest | branch lokal yang tidak di-pin bisa hilang diam-diam saat `repo sync --force-sync`; `system/bpf` datang dari remote aosp sehingga perlu `remove-project` dulu |
+| 2 Ags 2026 | Delapan cacat build diperbaiki di device tree/kernel kita, bukan dengan mem-fork tree bersama | `sepolicy-legacy` dan tree display dipakai banyak perangkat; menanggung fork besar demi satu-dua baris tidak sepadan. `libbfqio` dibawa ke device tree dengan alasan yang sama |
+| 2 Ags 2026 | `/root/los17` dihapus seluruhnya | disk habis di tahap pengemasan. Aman: keempat project bersih di SHA yang di-pin, dan zip ROM 17.1 sudah diarsipkan |
 | 1 Ags 2026 | **Tetap 19.1**, tidak turun ke 18.1 | keputusan pemilik proyek; konsekuensinya dua tambalan userspace (W1, W2) yang harus dirawat |
 | 1 Ags 2026 | **Koreksi:** sdcardfs masih dipakai di 19.1 | `EmulatedVolume.cpp:269` + `Utils.cpp:1013`; klaim "A12 FUSE-only" keliru, jadi backport `fs/fuse` keluar dari daftar wajib |

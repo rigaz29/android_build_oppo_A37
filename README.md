@@ -29,6 +29,7 @@ untuk apa yang sudah dan belum diverifikasi.
 | `build-kernel-resukisu.sh` | Bangun kernel + root ReSukiSU, keluar sebagai zip AnyKernel3 |
 | `patches/kernel-resukisu-hooks.patch` | Enam hook manual ReSukiSU + backport `READ_ONCE` untuk kernel 3.10 |
 | `KERNEL-RESUKISU.md` | Panduan kernel + ReSukiSU (jalur otomatis & manual) |
+| `A37-19.1.xml` | Local manifest untuk **LineageOS 19.1** — 11 project, sudah menghasilkan ROM yang terbangun (belum diuji boot). Lihat `PLAN.md` |
 | `PLAN.md` | Rencana dan progres menuju LineageOS 19.1 — fase, keputusan, dan hasil audit kernel |
 | `README.md` | Dokumen ini |
 
@@ -330,6 +331,14 @@ siklus build ROM 450 MB.
 ./build-kernel.sh                     # tarik dari repo, bangun branch a12-prep
 ./build-kernel.sh --rev lz4-backport  # branch, tag, atau SHA lain di remote
 ./build-kernel.sh --local             # pakai tree hasil repo sync, tanpa jaringan
+```
+
+`LOS_TREE` default-nya `~/los17`. Kalau tree Anda ada di tempat lain — misalnya hanya punya
+tree 19.1 — set variabelnya, karena `dtbToolOppo` diambil dari
+`$LOS_TREE/device/oppo/A37/dtbtool` dan tanpa itu pembuatan `dt.img` gagal:
+
+```bash
+LOS_TREE=/root/los19 ./build-kernel.sh --rev a12-prep
 ```
 
 Default-nya menarik sendiri dari `rigaz29/kernel_oppo_msm8939` ke `$WORK/kernel`, jadi hasilnya
