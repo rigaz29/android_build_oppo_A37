@@ -56,10 +56,12 @@
        dan mematikan lowmemorykiller in-kernel). Tidak ada branch 19.1 di hulu
        meghs — kernelnya hanya punya branch 0.0 — jadi fork ini memang jalurnya.
 
-       PERHATIAN: keempat commit itu belum pernah di-flash. Untuk memakai kernel
-       yang terbukti boot, pin ke 70ef81dab7abaac6914d4d1d2f089015ce31465a. -->
+       Commit b722472 menambah flag first_stage_mount pada fstab device-tree —
+       WAJIB untuk boot 19.1: first-stage init Android 12 tidak me-mount /system
+       tanpanya sehingga boot hang di logo OPPO tanpa adb. Jangan pin ke bawahnya
+       (70ef81d/ec427db hanya terbukti untuk 17.1). -->
   <project name="rigaz29/kernel_oppo_msm8939" path="kernel/oppo/msm8939"
-           remote="gh" revision="ec427db4f985011389bc2e87a3804159aeaa0d13" upstream="a12-prep" />
+           remote="gh" revision="b722472f536037f6a386e731589382edd19fdd3b" upstream="a12-prep" />
 
   <!-- hardware/qcom-caf untuk msm8916.
        WAJIB dan mudah terlewat: manifest LineageOS 19.1 menyediakan qcom-caf
