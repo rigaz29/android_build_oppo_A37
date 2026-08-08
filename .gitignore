@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 *.zip
 *.img
+
+# State lokal harness AI lain, bukan isi proyek
+.qwen/
